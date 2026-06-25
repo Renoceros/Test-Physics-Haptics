@@ -350,7 +350,8 @@ class PhysicsEngine: NSObject, ObservableObject {
                             balls[j].velocity.dx += (impulse / b2.mass) * nx
                             balls[j].velocity.dy += (impulse / b2.mass) * ny
                             
-                            if impulse > maxCollisionImpulse {
+                            // Only trigger haptic for significant impact speed
+                            if abs(relativeVelNormal) > 35.0 && impulse > maxCollisionImpulse {
                                 maxCollisionImpulse = impulse
                             }
                         }
@@ -369,9 +370,11 @@ class PhysicsEngine: NSObject, ObservableObject {
                 let normalVel = b.velocity.dx
                 if normalVel < 0 {
                     b.velocity.dx = -normalVel * edgeBounciness
-                    let impulse = b.mass * (1.0 + edgeBounciness) * abs(normalVel)
-                    if impulse > maxCollisionImpulse {
-                        maxCollisionImpulse = impulse
+                    if abs(normalVel) > 35.0 {
+                        let impulse = b.mass * (1.0 + edgeBounciness) * abs(normalVel)
+                        if impulse > maxCollisionImpulse {
+                            maxCollisionImpulse = impulse
+                        }
                     }
                 }
             }
@@ -382,9 +385,11 @@ class PhysicsEngine: NSObject, ObservableObject {
                 let normalVel = b.velocity.dx
                 if normalVel > 0 {
                     b.velocity.dx = -normalVel * edgeBounciness
-                    let impulse = b.mass * (1.0 + edgeBounciness) * abs(normalVel)
-                    if impulse > maxCollisionImpulse {
-                        maxCollisionImpulse = impulse
+                    if abs(normalVel) > 35.0 {
+                        let impulse = b.mass * (1.0 + edgeBounciness) * abs(normalVel)
+                        if impulse > maxCollisionImpulse {
+                            maxCollisionImpulse = impulse
+                        }
                     }
                 }
             }
@@ -395,9 +400,11 @@ class PhysicsEngine: NSObject, ObservableObject {
                 let normalVel = b.velocity.dy
                 if normalVel < 0 {
                     b.velocity.dy = -normalVel * edgeBounciness
-                    let impulse = b.mass * (1.0 + edgeBounciness) * abs(normalVel)
-                    if impulse > maxCollisionImpulse {
-                        maxCollisionImpulse = impulse
+                    if abs(normalVel) > 35.0 {
+                        let impulse = b.mass * (1.0 + edgeBounciness) * abs(normalVel)
+                        if impulse > maxCollisionImpulse {
+                            maxCollisionImpulse = impulse
+                        }
                     }
                 }
             }
@@ -408,9 +415,11 @@ class PhysicsEngine: NSObject, ObservableObject {
                 let normalVel = b.velocity.dy
                 if normalVel > 0 {
                     b.velocity.dy = -normalVel * edgeBounciness
-                    let impulse = b.mass * (1.0 + edgeBounciness) * abs(normalVel)
-                    if impulse > maxCollisionImpulse {
-                        maxCollisionImpulse = impulse
+                    if abs(normalVel) > 35.0 {
+                        let impulse = b.mass * (1.0 + edgeBounciness) * abs(normalVel)
+                        if impulse > maxCollisionImpulse {
+                            maxCollisionImpulse = impulse
+                        }
                     }
                 }
             }
@@ -421,7 +430,7 @@ class PhysicsEngine: NSObject, ObservableObject {
         // 4. Modulate Haptic Feedback Triggers
         
         // Collision Trigger: play a sharp buzz/thud haptic based on impact force
-        if maxCollisionImpulse > 3.0 {
+        if maxCollisionImpulse > 60.0 {
             // Normalize impulse with a typical upper reference value of 800.0
             let refImpulse: CGFloat = 800.0
             let intensity = Float(min(maxCollisionImpulse / refImpulse, 1.0))
