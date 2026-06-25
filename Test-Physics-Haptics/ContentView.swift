@@ -200,6 +200,7 @@ struct BallView: View {
 struct SettingsSheet: View {
     @ObservedObject var engine: PhysicsEngine
     @ObservedObject var soundManager = SoundManager.shared
+    @ObservedObject var motionManager = MotionManager.shared
     @Environment(\.dismiss) var dismiss
     
     var body: some View {
@@ -233,10 +234,19 @@ struct SettingsSheet: View {
                     }
                 }
                 
+                Section(header: Text("Gravity Settings")) {
+                    Toggle("Axis-Locked Gravity", isOn: $motionManager.isAxisLocked)
+                    Text("Snaps gravity to the nearest 3D axis plane. Laying the device flat on a table disables gravity, while tilting snaps it to vertical/horizontal axes.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                
                 Section(header: Text("Sound Settings")) {
                     Toggle("Sound Effects", isOn: $soundManager.isSoundEnabled)
                     
                     if soundManager.isSoundEnabled {
+                        Toggle("Rolling Rumble Sound", isOn: $soundManager.isRollingSoundEnabled)
+                        
                         VStack(alignment: .leading, spacing: 6) {
                             HStack {
                                 Text("Volume")

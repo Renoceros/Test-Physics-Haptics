@@ -27,6 +27,9 @@ struct RollingVoice {
     var currentFilterAlpha: Float
     var lastSample: Float
     var seed: UInt32
+    var targetSpeed: Float
+    var currentSpeed: Float
+    var phase: Float
 }
 
 class SoundManager: ObservableObject {
@@ -36,6 +39,13 @@ class SoundManager: ObservableObject {
     @Published var isSoundEnabled: Bool = true {
         didSet {
             if !isSoundEnabled {
+                silenceAllRolling()
+            }
+        }
+    }
+    @Published var isRollingSoundEnabled: Bool = true {
+        didSet {
+            if !isRollingSoundEnabled {
                 silenceAllRolling()
             }
         }
@@ -63,7 +73,7 @@ class SoundManager: ObservableObject {
         self.impactVoices = Array(repeating: ImpactVoice(frequency: 0, amplitude: 0, decayRate: 0, time: 0, isActive: false), count: maxImpactVoices)
         
         self.rollingVoices = (0..<maxRollingVoices).map { _ in
-            RollingVoice(id: nil, isActive: false, targetAmplitude: 0, targetFilterAlpha: 0, currentAmplitude: 0, currentFilterAlpha: 0, lastSample: 0, seed: UInt32.random(in: 1...UInt32.max))
+            RollingVoice(id: nil, isActive: false, targetAmplitude: 0, targetFilterAlpha: 0, currentAmplitude: 0, currentFilterAlpha: 0, lastSample: 0, seed: UInt32.random(in: 1...UInt32.max), targetSpeed: 0, currentSpeed: 0, phase: 0)
         }
         
         self.engine = AVAudioEngine()
@@ -101,7 +111,7 @@ class SoundManager: ObservableObject {
             for frame in 0..<frames {
                 var frameSample: Float = 0.0
                 
-                // 1. Synthesize Rolling Rumble (Noise + dynamic Low Pass Filter + Crackle)
+                // 1. Synthesize Rolling Rumble (Noise + dynamic Low Pass Filter + Crackle + Pitch-modulated Hum)
                 for index in 0..<self.maxRollingVoices {
                     var voice = self.rollingVoices[index]
                     guard voice.isActive else { continue }
@@ -109,6 +119,7 @@ class SoundManager: ObservableObject {
                     // Smoothly interpolate parameters to prevent clicks
                     voice.currentAmplitude += (voice.targetAmplitude - voice.currentAmplitude) * 0.004
                     voice.currentFilterAlpha += (voice.targetFilterAlpha - voice.currentFilterAlpha) * 0.004
+                    voice.currentSpeed += (voice.targetSpeed - voice.currentSpeed) * 0.004
                     
                     // 1a. Generate voice-specific white noise using LCG
                     voice.seed = voice.seed &* 1664525 &+ 1013904223
@@ -128,12 +139,21 @@ class SoundManager: ObservableObject {
                         crackleSample = sign * 0.35
                     }
                     
+                    // 1d. Cyclic Rolling Hum (frequency proportional to speed)
+                    let humFrequency = 25.0 + voice.currentSpeed * 0.35
+                    voice.phase += (2.0 * Float.pi * humFrequency) / Float(self.sampleRate)
+                    if voice.phase > 2.0 * Float.pi {
+                        voice.phase -= 2.0 * Float.pi
+                    }
+                    let humSample = (sin(voice.phase) + 0.3 * sin(voice.phase * 2.0)) * 0.12
+                    
                     // RC Low Pass Filter: y[n] = alpha * x[n] + (1 - alpha) * y[n-1]
                     let filteredNoise = alpha * voiceNoise + (1.0 - alpha) * voice.lastSample
                     voice.lastSample = filteredNoise
                     
-                    // Mix filtered noise and dust crackle
-                    frameSample += (filteredNoise + crackleSample) * voice.currentAmplitude
+                    // Mix filtered noise, crackle, and cyclic hum
+                    let combinedSignal = filteredNoise + crackleSample + humSample
+                    frameSample += combinedSignal * voice.currentAmplitude
                     
                     // Deactivate slot if it faded out completely
                     if voice.targetAmplitude == 0.0 && voice.currentAmplitude < 0.0005 {
@@ -291,7 +311,7 @@ class SoundManager: ObservableObject {
     /// Update the states of all active rolling balls.
     /// - Parameter activeRolls: List of rolling balls with their IDs, mass, and current speed.
     func updateRollingVoices(activeRolls: [(id: UUID, mass: CGFloat, speed: CGFloat)]) {
-        guard isSoundEnabled else { return }
+        guard isSoundEnabled && isRollingSoundEnabled else { return }
         
         lock.lock()
         
@@ -344,6 +364,9 @@ class SoundManager: ObservableObject {
                         rollingVoices[i].currentFilterAlpha = targetFilter
                         rollingVoices[i].lastSample = 0.0
                         rollingVoices[i].seed = UInt32.random(in: 1...UInt32.max)
+                        rollingVoices[i].targetSpeed = Float(roll.speed)
+                        rollingVoices[i].currentSpeed = 0.0
+                        rollingVoices[i].phase = 0.0
                         break
                     }
                 }
@@ -353,6 +376,7 @@ class SoundManager: ObservableObject {
             if let index = slotIndex {
                 rollingVoices[index].targetAmplitude = targetAmp
                 rollingVoices[index].targetFilterAlpha = targetFilter
+                rollingVoices[index].targetSpeed = Float(roll.speed)
                 updatedIndices.insert(index)
             }
         }
