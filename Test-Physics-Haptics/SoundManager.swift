@@ -33,7 +33,12 @@ struct RollingVoice {
     var lastHPFIn: Float
     var lastHPFOut: Float
     
-    // Resonator coefficients
+    // Resonator target coefficients
+    var target_b1_0: Float; var target_b2_0: Float; var target_g0: Float
+    var target_b1_1: Float; var target_b2_1: Float; var target_g1: Float
+    var target_b1_2: Float; var target_b2_2: Float; var target_g2: Float
+    
+    // Resonator current coefficients (smoothly interpolated)
     var b1_0: Float; var b2_0: Float; var g0: Float
     var b1_1: Float; var b2_1: Float; var g1: Float
     var b1_2: Float; var b2_2: Float; var g2: Float
@@ -87,6 +92,9 @@ class SoundManager: ObservableObject {
         self.rollingVoices = (0..<maxRollingVoices).map { _ in
             RollingVoice(
                 id: nil, isActive: false, targetAmplitude: 0, targetFilterAlpha: 0, currentAmplitude: 0, currentFilterAlpha: 0, lastSample: 0, seed: UInt32.random(in: 1...UInt32.max), targetSpeed: 0, currentSpeed: 0, phase: 0, lastHPFIn: 0, lastHPFOut: 0,
+                target_b1_0: 0, target_b2_0: 0, target_g0: 0,
+                target_b1_1: 0, target_b2_1: 0, target_g1: 0,
+                target_b1_2: 0, target_b2_2: 0, target_g2: 0,
                 b1_0: 0, b2_0: 0, g0: 0,
                 b1_1: 0, b2_1: 0, g1: 0,
                 b1_2: 0, b2_2: 0, g2: 0,
@@ -179,6 +187,19 @@ class SoundManager: ObservableObject {
                     
                     // Mix band-passed noise, crackle, and cyclic hum
                     let excitation = filteredHPF + crackleSample + humSample
+                    
+                    // Smoothly interpolate filter coefficients to prevent digital aliasing (zipper noise)
+                    voice.b1_0 += (voice.target_b1_0 - voice.b1_0) * 0.002
+                    voice.b2_0 += (voice.target_b2_0 - voice.b2_0) * 0.002
+                    voice.g0 += (voice.target_g0 - voice.g0) * 0.002
+                    
+                    voice.b1_1 += (voice.target_b1_1 - voice.b1_1) * 0.002
+                    voice.b2_1 += (voice.target_b2_1 - voice.b2_1) * 0.002
+                    voice.g1 += (voice.target_g1 - voice.g1) * 0.002
+                    
+                    voice.b1_2 += (voice.target_b1_2 - voice.b1_2) * 0.002
+                    voice.b2_2 += (voice.target_b2_2 - voice.b2_2) * 0.002
+                    voice.g2 += (voice.target_g2 - voice.g2) * 0.002
                     
                     // 1f. Pass excitation through 3 physical modal resonators of the ball
                     let y0 = voice.g0 * excitation - voice.b1_0 * voice.y1_0 - voice.b2_0 * voice.y2_0
@@ -446,6 +467,14 @@ class SoundManager: ObservableObject {
                         rollingVoices[i].y1_0 = 0.0; rollingVoices[i].y2_0 = 0.0
                         rollingVoices[i].y1_1 = 0.0; rollingVoices[i].y2_1 = 0.0
                         rollingVoices[i].y1_2 = 0.0; rollingVoices[i].y2_2 = 0.0
+                        
+                        // Set initial targets and current values to match immediately
+                        rollingVoices[i].target_b1_0 = b1_0; rollingVoices[i].target_b2_0 = b2_0; rollingVoices[i].target_g0 = g0
+                        rollingVoices[i].target_b1_1 = b1_1; rollingVoices[i].target_b2_1 = b2_1; rollingVoices[i].target_g1 = g1
+                        rollingVoices[i].target_b1_2 = b1_2; rollingVoices[i].target_b2_2 = b2_2; rollingVoices[i].target_g2 = g2
+                        rollingVoices[i].b1_0 = b1_0; rollingVoices[i].b2_0 = b2_0; rollingVoices[i].g0 = g0
+                        rollingVoices[i].b1_1 = b1_1; rollingVoices[i].b2_1 = b2_1; rollingVoices[i].g1 = g1
+                        rollingVoices[i].b1_2 = b1_2; rollingVoices[i].b2_2 = b2_2; rollingVoices[i].g2 = g2
                         break
                     }
                 }
@@ -456,9 +485,9 @@ class SoundManager: ObservableObject {
                 rollingVoices[index].targetAmplitude = targetAmp
                 rollingVoices[index].targetFilterAlpha = targetFilter
                 rollingVoices[index].targetSpeed = Float(roll.speed)
-                rollingVoices[index].b1_0 = b1_0; rollingVoices[index].b2_0 = b2_0; rollingVoices[index].g0 = g0
-                rollingVoices[index].b1_1 = b1_1; rollingVoices[index].b2_1 = b2_1; rollingVoices[index].g1 = g1
-                rollingVoices[index].b1_2 = b1_2; rollingVoices[index].b2_2 = b2_2; rollingVoices[index].g2 = g2
+                rollingVoices[index].target_b1_0 = b1_0; rollingVoices[index].target_b2_0 = b2_0; rollingVoices[index].target_g0 = g0
+                rollingVoices[index].target_b1_1 = b1_1; rollingVoices[index].target_b2_1 = b2_1; rollingVoices[index].target_g1 = g1
+                rollingVoices[index].target_b1_2 = b1_2; rollingVoices[index].target_b2_2 = b2_2; rollingVoices[index].target_g2 = g2
                 updatedIndices.insert(index)
             }
         }

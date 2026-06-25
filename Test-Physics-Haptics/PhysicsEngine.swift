@@ -346,6 +346,14 @@ class PhysicsEngine: NSObject, ObservableObject {
                         let rvy = balls[j].velocity.dy - balls[i].velocity.dy
                         let relativeVelNormal = rvx * nx + rvy * ny
                         
+                        // Resting contact damping to prevent positive feedback loops and energy injection
+                        if abs(relativeVelNormal) < 45.0 {
+                            balls[i].velocity.dx *= 0.8
+                            balls[i].velocity.dy *= 0.8
+                            balls[j].velocity.dx *= 0.8
+                            balls[j].velocity.dy *= 0.8
+                        }
+                        
                         if relativeVelNormal < 0 {
                             // Apply inelastic threshold of 45 px/s to prevent infinite micro-bounces (resting jitter)
                             let coef = abs(relativeVelNormal) < 45.0 ? 0.0 : (b1.bounciness + b2.bounciness) / 2.0
@@ -386,6 +394,9 @@ class PhysicsEngine: NSObject, ObservableObject {
                 if normalVel < 0 {
                     let coef = abs(normalVel) < 45.0 ? 0.0 : (b.bounciness + edgeBounciness) / 2.0
                     b.velocity.dx = -normalVel * coef
+                    if abs(normalVel) < 45.0 {
+                        b.velocity.dy *= 0.8 // Damp tangential sliding
+                    }
                     if abs(normalVel) > 35.0 {
                         let impulse = b.mass * (1.0 + coef) * abs(normalVel)
                         if impulse > maxCollisionImpulse {
@@ -408,6 +419,9 @@ class PhysicsEngine: NSObject, ObservableObject {
                 if normalVel > 0 {
                     let coef = abs(normalVel) < 45.0 ? 0.0 : (b.bounciness + edgeBounciness) / 2.0
                     b.velocity.dx = -normalVel * coef
+                    if abs(normalVel) < 45.0 {
+                        b.velocity.dy *= 0.8 // Damp tangential sliding
+                    }
                     if abs(normalVel) > 35.0 {
                         let impulse = b.mass * (1.0 + coef) * abs(normalVel)
                         if impulse > maxCollisionImpulse {
@@ -430,6 +444,9 @@ class PhysicsEngine: NSObject, ObservableObject {
                 if normalVel < 0 {
                     let coef = abs(normalVel) < 45.0 ? 0.0 : (b.bounciness + edgeBounciness) / 2.0
                     b.velocity.dy = -normalVel * coef
+                    if abs(normalVel) < 45.0 {
+                        b.velocity.dx *= 0.8 // Damp tangential sliding
+                    }
                     if abs(normalVel) > 35.0 {
                         let impulse = b.mass * (1.0 + coef) * abs(normalVel)
                         if impulse > maxCollisionImpulse {
@@ -452,6 +469,9 @@ class PhysicsEngine: NSObject, ObservableObject {
                 if normalVel > 0 {
                     let coef = abs(normalVel) < 45.0 ? 0.0 : (b.bounciness + edgeBounciness) / 2.0
                     b.velocity.dy = -normalVel * coef
+                    if abs(normalVel) < 45.0 {
+                        b.velocity.dx *= 0.8 // Damp tangential sliding
+                    }
                     if abs(normalVel) > 35.0 {
                         let impulse = b.mass * (1.0 + coef) * abs(normalVel)
                         if impulse > maxCollisionImpulse {
