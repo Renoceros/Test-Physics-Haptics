@@ -26,6 +26,7 @@ struct RollingVoice {
     var currentAmplitude: Float
     var currentFilterAlpha: Float
     var lastSample: Float
+    var seed: UInt32
 }
 
 class SoundManager: ObservableObject {
@@ -62,7 +63,7 @@ class SoundManager: ObservableObject {
         self.impactVoices = Array(repeating: ImpactVoice(frequency: 0, amplitude: 0, decayRate: 0, time: 0, isActive: false), count: maxImpactVoices)
         
         self.rollingVoices = (0..<maxRollingVoices).map { _ in
-            RollingVoice(id: nil, isActive: false, targetAmplitude: 0, targetFilterAlpha: 0, currentAmplitude: 0, currentFilterAlpha: 0, lastSample: 0)
+            RollingVoice(id: nil, isActive: false, targetAmplitude: 0, targetFilterAlpha: 0, currentAmplitude: 0, currentFilterAlpha: 0, lastSample: 0, seed: UInt32.random(in: 1...UInt32.max))
         }
         
         self.engine = AVAudioEngine()
@@ -100,10 +101,7 @@ class SoundManager: ObservableObject {
             for frame in 0..<frames {
                 var frameSample: Float = 0.0
                 
-                // 1. Generate White Noise component for rolling friction
-                let whiteNoise = Float.random(in: -1.0...1.0)
-                
-                // 2. Synthesize Rolling Rumble (Noise + dynamic Low Pass Filter)
+                // 1. Synthesize Rolling Rumble (Noise + dynamic Low Pass Filter + Crackle)
                 for index in 0..<self.maxRollingVoices {
                     var voice = self.rollingVoices[index]
                     guard voice.isActive else { continue }
@@ -112,11 +110,30 @@ class SoundManager: ObservableObject {
                     voice.currentAmplitude += (voice.targetAmplitude - voice.currentAmplitude) * 0.004
                     voice.currentFilterAlpha += (voice.targetFilterAlpha - voice.currentFilterAlpha) * 0.004
                     
+                    // 1a. Generate voice-specific white noise using LCG
+                    voice.seed = voice.seed &* 1664525 &+ 1013904223
+                    let voiceNoise = Float(Int32(truncatingIfNeeded: voice.seed)) / 2147483647.0
+                    
+                    // 1b. Alpha Jitter to break monotone filtering
+                    voice.seed = voice.seed &* 1664525 &+ 1013904223
+                    let jitterRaw = Float(Int16(truncatingIfNeeded: voice.seed & 0xFFFF)) / 32768.0
+                    let alphaJitter = jitterRaw * 0.008
+                    let alpha = max(0.005, min(0.995, voice.currentFilterAlpha + alphaJitter))
+                    
+                    // 1c. Granular Dust Crackle (0.04% probability per sample)
+                    voice.seed = voice.seed &* 1664525 &+ 1013904223
+                    var crackleSample: Float = 0.0
+                    if (voice.seed & 0xFFFF) < 26 {
+                        let sign: Float = ((voice.seed >> 16) & 1) == 0 ? -1.0 : 1.0
+                        crackleSample = sign * 0.35
+                    }
+                    
                     // RC Low Pass Filter: y[n] = alpha * x[n] + (1 - alpha) * y[n-1]
-                    let filteredNoise = voice.currentFilterAlpha * whiteNoise + (1.0 - voice.currentFilterAlpha) * voice.lastSample
+                    let filteredNoise = alpha * voiceNoise + (1.0 - alpha) * voice.lastSample
                     voice.lastSample = filteredNoise
                     
-                    frameSample += filteredNoise * voice.currentAmplitude
+                    // Mix filtered noise and dust crackle
+                    frameSample += (filteredNoise + crackleSample) * voice.currentAmplitude
                     
                     // Deactivate slot if it faded out completely
                     if voice.targetAmplitude == 0.0 && voice.currentAmplitude < 0.0005 {
@@ -299,8 +316,8 @@ class SoundManager: ObservableObject {
                 // Exponential volume mapping (quadratic) to match human hearing logarithmics
                 let expSpeedRatio = speedRatio * speedRatio
                 
-                // Increased volume coefficient (up to 0.45) for richer rumbles
-                let maxRollingVolume: Float = 0.45
+                // Reduced max rolling volume coefficient to keep noise subtle
+                let maxRollingVolume: Float = 0.18
                 targetAmp = Float(expSpeedRatio) * maxRollingVolume * Float(0.3 + 0.7 * min(Double(roll.mass) / 10.0, 1.0))
                 
                 // Dynamic LPF cutoff mapping
@@ -326,6 +343,7 @@ class SoundManager: ObservableObject {
                         rollingVoices[i].currentAmplitude = 0.0
                         rollingVoices[i].currentFilterAlpha = targetFilter
                         rollingVoices[i].lastSample = 0.0
+                        rollingVoices[i].seed = UInt32.random(in: 1...UInt32.max)
                         break
                     }
                 }
