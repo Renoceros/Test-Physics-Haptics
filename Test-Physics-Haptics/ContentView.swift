@@ -31,6 +31,12 @@ class SandboxViewModel: ObservableObject {
         }
     }
     
+    @Published var gravityMultiplier: CGFloat = 1100.0 {
+        didSet {
+            physicsEngine.gravityMultiplier = gravityMultiplier
+        }
+    }
+    
     @Published var isDirectFollow: Bool = false {
         didSet {
             physicsEngine.isDirectFollow = isDirectFollow
@@ -76,6 +82,11 @@ class SandboxViewModel: ObservableObject {
     private var lastTimestamp: CFTimeInterval = 0
     private var cancellables = Set<AnyCancellable>()
     private var dragStartDate: Date?
+    private var undoStack: [[Ball]] = []
+    private var redoStack: [[Ball]] = []
+    
+    var canUndo: Bool { !undoStack.isEmpty }
+    var canRedo: Bool { !redoStack.isEmpty }
     
     init() {
         // Load initial states from Singletons
@@ -209,20 +220,87 @@ class SandboxViewModel: ObservableObject {
         self.balls = physicsEngine.balls
     }
     
+    // MARK: - Undo / Redo History Logic
+    
+    private func saveToUndoStack() {
+        undoStack.append(physicsEngine.balls)
+        redoStack.removeAll()
+    }
+    
+    func undo() {
+        guard !undoStack.isEmpty else { return }
+        redoStack.append(physicsEngine.balls)
+        let previous = undoStack.removeLast()
+        physicsEngine.balls = previous
+        self.balls = previous
+    }
+    
+    func redo() {
+        guard !redoStack.isEmpty else { return }
+        undoStack.append(physicsEngine.balls)
+        let next = redoStack.removeLast()
+        physicsEngine.balls = next
+        self.balls = next
+    }
+    
     // MARK: - Spawn and Clean APIs
     
     func summonBall(mass: CGFloat, size: CGFloat, rollingFriction: CGFloat, bounciness: CGFloat) {
+        saveToUndoStack()
         physicsEngine.summonBall(mass: mass, size: size, rollingFriction: rollingFriction, bounciness: bounciness)
         self.balls = physicsEngine.balls
     }
     
     func deleteAllBalls() {
+        saveToUndoStack()
         physicsEngine.deleteAllBalls()
         self.balls = physicsEngine.balls
     }
     
     func resetToDefaults() {
+        saveToUndoStack()
         physicsEngine.setupInitialBalls()
+        self.balls = physicsEngine.balls
+    }
+    
+    func loadChimePreset() {
+        saveToUndoStack()
+        
+        // Frequencies in kHz for C5, E5, G5, A5, C6 chord
+        let frequenciesInkHz: [CGFloat] = [0.52325, 0.65925, 0.78399, 0.88000, 1.04650]
+        let sizes: [CGFloat] = [70.0, 62.0, 54.0, 48.0, 42.0]
+        
+        physicsEngine.balls.removeAll()
+        
+        let count = frequenciesInkHz.count
+        let spawnY = physicsEngine.bounds.height > 0 ? physicsEngine.bounds.height / 2.0 : 350.0
+        let totalWidth = physicsEngine.bounds.width > 0 ? physicsEngine.bounds.width : 360.0
+        
+        for i in 0..<count {
+            let freqkHz = frequenciesInkHz[i]
+            let freqHz = freqkHz * 1000.0
+            
+            // Math reversal targeting the exact frequency:
+            // f = 75.0 + 750.0 / sqrt(m) => m = (750.0 / (f - 75.0))^2
+            let massValue = pow(750.0 / (freqHz - 75.0), 2.0)
+            
+            // Distribute horizontally
+            let fraction = CGFloat(i + 1) / CGFloat(count + 1)
+            let spawnX = totalWidth * fraction
+            
+            let radius = sizes[i] / 2.0
+            let newBall = Ball(
+                id: UUID(),
+                position: CGPoint(x: spawnX, y: spawnY),
+                velocity: .zero,
+                radius: radius,
+                mass: CGFloat(massValue),
+                rollingFriction: 0.05,
+                bounciness: 0.6
+            )
+            physicsEngine.balls.append(newBall)
+        }
+        
         self.balls = physicsEngine.balls
     }
     
@@ -266,17 +344,41 @@ struct ContentView: View {
     var body: some View {
         VStack(spacing: 0) {
             // Header Bar
-            HStack {
+            HStack(spacing: 8) {
                 Button {
                     showSettings = true
                 } label: {
                     Image(systemName: "gearshape.fill")
-                        .font(.title2)
+                        .font(.title3)
                         .foregroundColor(.gray)
-                        .padding(12)
+                        .padding(10)
                         .background(Color(white: 0.95))
                         .clipShape(Circle())
                 }
+                
+                Button {
+                    viewModel.undo()
+                } label: {
+                    Image(systemName: "arrow.uturn.backward")
+                        .font(.body)
+                        .foregroundColor(viewModel.canUndo ? .primary : .gray.opacity(0.3))
+                        .padding(10)
+                        .background(Color(white: 0.95))
+                        .clipShape(Circle())
+                }
+                .disabled(!viewModel.canUndo)
+                
+                Button {
+                    viewModel.redo()
+                } label: {
+                    Image(systemName: "arrow.uturn.forward")
+                        .font(.body)
+                        .foregroundColor(viewModel.canRedo ? .primary : .gray.opacity(0.3))
+                        .padding(10)
+                        .background(Color(white: 0.95))
+                        .clipShape(Circle())
+                }
+                .disabled(!viewModel.canRedo)
                 
                 Spacer()
                 
@@ -492,6 +594,16 @@ struct SettingsSheet: View {
                     Toggle("Enable Gravity", isOn: $viewModel.isGravityEnabled)
                     
                     if viewModel.isGravityEnabled {
+                        VStack(alignment: .leading, spacing: 6) {
+                            HStack {
+                                    Text("Gravity Strength")
+                                    Spacer()
+                                    Text("\(Int(viewModel.gravityMultiplier)) pt/s²")
+                                        .foregroundColor(.secondary)
+                            }
+                            Slider(value: $viewModel.gravityMultiplier, in: 100.0...2500.0, step: 50.0)
+                        }
+                        
                         Toggle("Axis-Locked Gravity", isOn: $viewModel.isAxisLocked)
                         Text("Snaps gravity to the nearest 3D axis plane. Laying the device flat on a table disables gravity, while tilting snaps it to vertical/horizontal axes.")
                             .font(.caption)
@@ -518,6 +630,17 @@ struct SettingsSheet: View {
                 }
                 
                 Section {
+                    Button {
+                        viewModel.loadChimePreset()
+                        dismiss()
+                    } label: {
+                        HStack {
+                            Spacer()
+                            Text("Load Chime Preset (Chord)")
+                            Spacer()
+                        }
+                    }
+                    
                     Button(role: .destructive) {
                         viewModel.deleteAllBalls()
                         dismiss()

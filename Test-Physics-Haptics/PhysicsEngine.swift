@@ -59,7 +59,7 @@ class PhysicsEngine {
     var dragTouchPos: CGPoint = .zero
     
     // Physical Constants
-    private let gravityMultiplier: CGFloat = 1100.0 // Pixels/s^2 multiplier for tilt gravity
+    var gravityMultiplier: CGFloat = 1100.0 // Pixels/s^2 multiplier for tilt gravity
     private let springStiffness: CGFloat = 20.0     // Spring constant (K) for rubberband drag
     private let springDamping: CGFloat = 4.0       // Damping constant (C) for rubberband drag
     private let baseFrictionDecel: CGFloat = 160.0 // Base deceleration for rolling friction
