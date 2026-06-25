@@ -183,15 +183,6 @@ struct BallView: View {
     var body: some View {
         Circle()
             .fill(color)
-            // Radial highlight on top-left of circle to present it as a 3D sphere
-            .overlay(
-                RadialGradient(
-                    gradient: Gradient(colors: [.white.opacity(0.45), .clear]),
-                    center: .topLeading,
-                    startRadius: 0,
-                    endRadius: ball.radius
-                )
-            )
             .frame(width: ball.radius * 2, height: ball.radius * 2)
             // Offset shadow opposite of tilt gravity direction to reinforce depth
             .shadow(
@@ -347,14 +338,6 @@ struct SummonSheet: View {
                             
                             Circle()
                                 .fill(Color(white: grayVal))
-                                .overlay(
-                                    RadialGradient(
-                                        gradient: Gradient(colors: [.white.opacity(0.45), .clear]),
-                                        center: .topLeading,
-                                        startRadius: 0,
-                                        endRadius: radius
-                                    )
-                                )
                                 .frame(width: size, height: size)
                                 .shadow(color: Color.black.opacity(0.15), radius: 5, x: 0, y: 3)
                             
