@@ -1,0 +1,53 @@
+# ==========================================
+# macOS System Files
+# ==========================================
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# ==========================================
+# Xcode User & Build Artifacts (Prevents Merge Conflicts)
+# ==========================================
+xcuserdata/
+*.xcuserstate
+DerivedData/
+build/
+
+# ==========================================
+# App Packaging & Playgrounds
+# ==========================================
+*.ipa
+*.dSYM.zip
+*.dSYM
+timeline.xctimeline
+playground.xcworkspace
+
+# ==========================================
+# Swift Package Manager & Code Structure
+# ==========================================
+.build/
+*.xcodeproj/*
+!*.xcodeproj/project.pbxproj
+!*.xcodeproj/xcshareddata/
+!*.xcodeproj/project.xcworkspace/
+!*.xcworkspace/contents.xcworkspacedata
+
+# ==========================================
+# CI/CD Automation (Fastlane)
+# ==========================================
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/screenshots/**/*.png
+fastlane/test_output
+
+# ==========================================
+# Codebase Documentation
+# ==========================================
+codebase_understanding.md
+
+# ==========================================
+# Miscellaneous
+# ==========================================
+.agents
+.gemini
