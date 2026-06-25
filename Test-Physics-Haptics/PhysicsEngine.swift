@@ -18,6 +18,7 @@ struct Ball: Identifiable, Equatable {
     var radius: CGFloat
     var mass: CGFloat
     var rollingFriction: CGFloat // Ball-specific friction coefficient
+    var bounciness: CGFloat      // Ball-specific bounciness (restitution)
     
     // Normalized density = mass / radius
     var density: CGFloat {
@@ -70,7 +71,8 @@ class PhysicsEngine: NSObject, ObservableObject {
             velocity: .zero,
             radius: 24, // small diameter = 48
             mass: 1.2,
-            rollingFriction: 0.05
+            rollingFriction: 0.05,
+            bounciness: 0.6
         )
         
         let ballLarge = Ball(
@@ -79,7 +81,8 @@ class PhysicsEngine: NSObject, ObservableObject {
             velocity: .zero,
             radius: 54, // large diameter = 108
             mass: 10.0,
-            rollingFriction: 0.05
+            rollingFriction: 0.05,
+            bounciness: 0.5
         )
         
         self.balls = [ballSmall, ballLarge]
@@ -127,7 +130,7 @@ class PhysicsEngine: NSObject, ObservableObject {
     
     // MARK: - Spawn and Clean
     
-    func summonBall(mass: CGFloat, size: CGFloat, rollingFriction: CGFloat) {
+    func summonBall(mass: CGFloat, size: CGFloat, rollingFriction: CGFloat, bounciness: CGFloat) {
         let radius = size / 2.0
         
         // Default to center if bounds are zero
@@ -144,7 +147,8 @@ class PhysicsEngine: NSObject, ObservableObject {
             velocity: .zero,
             radius: radius,
             mass: mass,
-            rollingFriction: rollingFriction
+            rollingFriction: rollingFriction,
+            bounciness: bounciness
         )
         
         balls.append(newBall)
@@ -340,9 +344,9 @@ class PhysicsEngine: NSObject, ObservableObject {
                         let relativeVelNormal = rvx * nx + rvy * ny
                         
                         if relativeVelNormal < 0 {
-                            // Elastic collision velocity exchange
-                            let bouncinessCoef = edgeBounciness // Match screen borders for simplicity
-                            let impulse = -(1.0 + bouncinessCoef) * relativeVelNormal / totalInvMass
+                            // Apply inelastic threshold of 45 px/s to prevent infinite micro-bounces (resting jitter)
+                            let coef = abs(relativeVelNormal) < 45.0 ? 0.0 : (b1.bounciness + b2.bounciness) / 2.0
+                            let impulse = -(1.0 + coef) * relativeVelNormal / totalInvMass
                             
                             balls[i].velocity.dx -= (impulse / b1.mass) * nx
                             balls[i].velocity.dy -= (impulse / b1.mass) * ny
@@ -358,7 +362,7 @@ class PhysicsEngine: NSObject, ObservableObject {
                                 SoundManager.shared.playCollision(
                                     mass: min(b1.mass, b2.mass),
                                     size: min(b1.radius, b2.radius) * 2.0,
-                                    bounciness: edgeBounciness,
+                                    bounciness: coef,
                                     impulse: impulse
                                 )
                             }
@@ -377,16 +381,17 @@ class PhysicsEngine: NSObject, ObservableObject {
                 b.position.x = b.radius
                 let normalVel = b.velocity.dx
                 if normalVel < 0 {
-                    b.velocity.dx = -normalVel * edgeBounciness
+                    let coef = abs(normalVel) < 45.0 ? 0.0 : (b.bounciness + edgeBounciness) / 2.0
+                    b.velocity.dx = -normalVel * coef
                     if abs(normalVel) > 35.0 {
-                        let impulse = b.mass * (1.0 + edgeBounciness) * abs(normalVel)
+                        let impulse = b.mass * (1.0 + coef) * abs(normalVel)
                         if impulse > maxCollisionImpulse {
                             maxCollisionImpulse = impulse
                         }
                         SoundManager.shared.playCollision(
                             mass: b.mass,
                             size: b.radius * 2.0,
-                            bounciness: edgeBounciness,
+                            bounciness: coef,
                             impulse: impulse
                         )
                     }
@@ -398,16 +403,17 @@ class PhysicsEngine: NSObject, ObservableObject {
                 b.position.x = bounds.width - b.radius
                 let normalVel = b.velocity.dx
                 if normalVel > 0 {
-                    b.velocity.dx = -normalVel * edgeBounciness
+                    let coef = abs(normalVel) < 45.0 ? 0.0 : (b.bounciness + edgeBounciness) / 2.0
+                    b.velocity.dx = -normalVel * coef
                     if abs(normalVel) > 35.0 {
-                        let impulse = b.mass * (1.0 + edgeBounciness) * abs(normalVel)
+                        let impulse = b.mass * (1.0 + coef) * abs(normalVel)
                         if impulse > maxCollisionImpulse {
                             maxCollisionImpulse = impulse
                         }
                         SoundManager.shared.playCollision(
                             mass: b.mass,
                             size: b.radius * 2.0,
-                            bounciness: edgeBounciness,
+                            bounciness: coef,
                             impulse: impulse
                         )
                     }
@@ -419,16 +425,17 @@ class PhysicsEngine: NSObject, ObservableObject {
                 b.position.y = b.radius
                 let normalVel = b.velocity.dy
                 if normalVel < 0 {
-                    b.velocity.dy = -normalVel * edgeBounciness
+                    let coef = abs(normalVel) < 45.0 ? 0.0 : (b.bounciness + edgeBounciness) / 2.0
+                    b.velocity.dy = -normalVel * coef
                     if abs(normalVel) > 35.0 {
-                        let impulse = b.mass * (1.0 + edgeBounciness) * abs(normalVel)
+                        let impulse = b.mass * (1.0 + coef) * abs(normalVel)
                         if impulse > maxCollisionImpulse {
                             maxCollisionImpulse = impulse
                         }
                         SoundManager.shared.playCollision(
                             mass: b.mass,
                             size: b.radius * 2.0,
-                            bounciness: edgeBounciness,
+                            bounciness: coef,
                             impulse: impulse
                         )
                     }
@@ -440,16 +447,17 @@ class PhysicsEngine: NSObject, ObservableObject {
                 b.position.y = bounds.height - b.radius
                 let normalVel = b.velocity.dy
                 if normalVel > 0 {
-                    b.velocity.dy = -normalVel * edgeBounciness
+                    let coef = abs(normalVel) < 45.0 ? 0.0 : (b.bounciness + edgeBounciness) / 2.0
+                    b.velocity.dy = -normalVel * coef
                     if abs(normalVel) > 35.0 {
-                        let impulse = b.mass * (1.0 + edgeBounciness) * abs(normalVel)
+                        let impulse = b.mass * (1.0 + coef) * abs(normalVel)
                         if impulse > maxCollisionImpulse {
                             maxCollisionImpulse = impulse
                         }
                         SoundManager.shared.playCollision(
                             mass: b.mass,
                             size: b.radius * 2.0,
-                            bounciness: edgeBounciness,
+                            bounciness: coef,
                             impulse: impulse
                         )
                     }

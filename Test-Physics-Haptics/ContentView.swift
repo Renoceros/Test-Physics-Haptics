@@ -303,6 +303,7 @@ struct SummonSheet: View {
     @State private var mass: Double = 2.0
     @State private var size: Double = 80.0 // Diameter
     @State private var rollingFriction: Double = 0.05
+    @State private var bounciness: Double = 0.6
     
     var body: some View {
         NavigationView {
@@ -340,6 +341,19 @@ struct SummonSheet: View {
                         }
                         Slider(value: $rollingFriction, in: 0.0...1.0, step: 0.05)
                         Text("Friction coefficient. High friction prevents rolling under slight tilts.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                    
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack {
+                            Text("Bounciness")
+                            Spacer()
+                            Text(String(format: "%.2f", bounciness))
+                                .foregroundColor(.secondary)
+                        }
+                        Slider(value: $bounciness, in: 0.0...1.0, step: 0.05)
+                        Text("Individual restitution coefficient. Higher values bounce more elastically.")
                             .font(.caption)
                             .foregroundColor(.secondary)
                     }
@@ -382,7 +396,8 @@ struct SummonSheet: View {
                         engine.summonBall(
                             mass: CGFloat(mass),
                             size: CGFloat(size),
-                            rollingFriction: CGFloat(rollingFriction)
+                            rollingFriction: CGFloat(rollingFriction),
+                            bounciness: CGFloat(bounciness)
                         )
                         dismiss()
                     } label: {
