@@ -7,6 +7,7 @@
 
 import Foundation
 import CoreMotion
+import CoreGraphics
 import Combine
 
 class MotionManager: ObservableObject {

@@ -9,6 +9,7 @@ import Foundation
 import SwiftUI
 import CoreGraphics
 import QuartzCore
+import Combine
 
 struct Ball: Identifiable, Equatable {
     let id: UUID
@@ -26,7 +27,7 @@ struct Ball: Identifiable, Equatable {
 
 class PhysicsEngine: NSObject, ObservableObject {
     @Published var balls: [Ball] = []
-    
+
     // Simulation parameters
     @Published var planeFriction: CGFloat = 0.15 // Plane rolling friction coef
     @Published var edgeBounciness: CGFloat = 0.75 // Border bounciness (restitution)
@@ -41,7 +42,7 @@ class PhysicsEngine: NSObject, ObservableObject {
     
     // Tracking active drag gesture
     @Published var draggedBallId: UUID?
-    private var dragTouchPos: CGPoint = .zero
+    @Published var dragTouchPos: CGPoint = .zero
     
     // Display link for steady physics steps
     private var displayLink: CADisplayLink?
