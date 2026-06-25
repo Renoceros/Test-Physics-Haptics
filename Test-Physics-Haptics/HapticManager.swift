@@ -76,17 +76,25 @@ class HapticManager {
     // Continuous haptics for drag and motion
     private var continuousPlayer: CHHapticAdvancedPatternPlayer?
     private var isContinuousPlaying = false
+    private var currentIntensity: Float = 0.0
+    private var currentSharpness: Float = 0.0
     
     func startContinuousHaptic(intensity: Float, sharpness: Float) {
         guard isSupported, let engine = engine else { return }
         
+        let intensityVal = min(max(intensity, 0.01), 1.0)
+        let sharpnessVal = min(max(sharpness, 0.0), 1.0)
+        
         if isContinuousPlaying {
-            updateContinuousHaptic(intensity: intensity, sharpness: sharpness)
+            updateContinuousHaptic(intensity: intensityVal, sharpness: sharpnessVal)
             return
         }
         
-        let intensityParam = CHHapticEventParameter(parameterID: .hapticIntensity, value: intensity)
-        let sharpnessParam = CHHapticEventParameter(parameterID: .hapticSharpness, value: sharpness)
+        currentIntensity = intensityVal
+        currentSharpness = sharpnessVal
+        
+        let intensityParam = CHHapticEventParameter(parameterID: .hapticIntensity, value: intensityVal)
+        let sharpnessParam = CHHapticEventParameter(parameterID: .hapticSharpness, value: sharpnessVal)
         
         let event = CHHapticEvent(
             eventType: .hapticContinuous,
@@ -112,8 +120,12 @@ class HapticManager {
         let intensityVal = min(max(intensity, 0.01), 1.0)
         let sharpnessVal = min(max(sharpness, 0.0), 1.0)
         
-        let intensityControl = CHHapticDynamicParameter(parameterID: .hapticIntensityControl, value: intensityVal, relativeTime: 0)
-        let sharpnessControl = CHHapticDynamicParameter(parameterID: .hapticSharpnessControl, value: sharpnessVal, relativeTime: 0)
+        // Smoothly interpolate towards target to prevent sudden haptic jumps (haptic anti-aliasing)
+        currentIntensity += (intensityVal - currentIntensity) * 0.12
+        currentSharpness += (sharpnessVal - currentSharpness) * 0.12
+        
+        let intensityControl = CHHapticDynamicParameter(parameterID: .hapticIntensityControl, value: currentIntensity, relativeTime: 0)
+        let sharpnessControl = CHHapticDynamicParameter(parameterID: .hapticSharpnessControl, value: currentSharpness, relativeTime: 0)
         
         do {
             try player.sendParameters([intensityControl, sharpnessControl], atTime: 0)

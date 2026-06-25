@@ -310,9 +310,12 @@ class PhysicsEngine: NSObject, ObservableObject {
             balls[i] = ball
         }
         
-        // 2. Ball-to-Ball Collisions
-        // Run collision solver twice to improve stability in multi-ball overlap scenarios
-        for _ in 0..<2 {
+        // 2. Unified Collision Solver Loop (Ball-to-Ball and Border/Edge)
+        // Run the combined solver 4 times to let positions and velocities converge globally,
+        // avoiding constraint fights and jitter in resting contacts (especially in corners).
+        let solverIterations = 4
+        for iteration in 0..<solverIterations {
+            // A. Ball-to-Ball Collisions
             for i in 0..<balls.count {
                 for j in (i+1)..<balls.count {
                     let b1 = balls[i]
@@ -347,7 +350,8 @@ class PhysicsEngine: NSObject, ObservableObject {
                         let relativeVelNormal = rvx * nx + rvy * ny
                         
                         // Resting contact damping to prevent positive feedback loops and energy injection
-                        if abs(relativeVelNormal) < 45.0 {
+                        let restingThreshold: CGFloat = 55.0
+                        if abs(relativeVelNormal) < restingThreshold {
                             balls[i].velocity.dx *= 0.8
                             balls[i].velocity.dy *= 0.8
                             balls[j].velocity.dx *= 0.8
@@ -355,8 +359,8 @@ class PhysicsEngine: NSObject, ObservableObject {
                         }
                         
                         if relativeVelNormal < 0 {
-                            // Apply inelastic threshold of 45 px/s to prevent infinite micro-bounces (resting jitter)
-                            let coef = abs(relativeVelNormal) < 45.0 ? 0.0 : (b1.bounciness + b2.bounciness) / 2.0
+                            // Apply inelastic threshold of 55 px/s to prevent infinite micro-bounces (resting jitter)
+                            let coef = abs(relativeVelNormal) < restingThreshold ? 0.0 : (b1.bounciness + b2.bounciness) / 2.0
                             let impulse = -(1.0 + coef) * relativeVelNormal / totalInvMass
                             
                             balls[i].velocity.dx -= (impulse / b1.mass) * nx
@@ -365,9 +369,11 @@ class PhysicsEngine: NSObject, ObservableObject {
                             balls[j].velocity.dx += (impulse / b2.mass) * nx
                             balls[j].velocity.dy += (impulse / b2.mass) * ny
                             
-                            // Only trigger haptic and sound for significant impact speed
-                            if abs(relativeVelNormal) > 35.0 && impulse > maxCollisionImpulse {
-                                maxCollisionImpulse = impulse
+                            // Only trigger haptic and sound for significant impact speed on the first iteration
+                            if iteration == 0 && abs(relativeVelNormal) > restingThreshold {
+                                if impulse > maxCollisionImpulse {
+                                    maxCollisionImpulse = impulse
+                                }
                                 
                                 // Synthesize dynamic physical impact sound
                                 SoundManager.shared.playCollision(
@@ -381,113 +387,114 @@ class PhysicsEngine: NSObject, ObservableObject {
                     }
                 }
             }
-        }
-        
-        // 3. Border/Edge Collisions
-        for i in 0..<balls.count {
-            var b = balls[i]
             
-            // Left boundary
-            if b.position.x - b.radius < 0 {
-                b.position.x = b.radius
-                let normalVel = b.velocity.dx
-                if normalVel < 0 {
-                    let coef = abs(normalVel) < 45.0 ? 0.0 : (b.bounciness + edgeBounciness) / 2.0
-                    b.velocity.dx = -normalVel * coef
-                    if abs(normalVel) < 45.0 {
-                        b.velocity.dy *= 0.8 // Damp tangential sliding
-                    }
-                    if abs(normalVel) > 35.0 {
-                        let impulse = b.mass * (1.0 + coef) * abs(normalVel)
-                        if impulse > maxCollisionImpulse {
-                            maxCollisionImpulse = impulse
+            // B. Border/Edge Collisions
+            for i in 0..<balls.count {
+                var b = balls[i]
+                let restingThreshold: CGFloat = 55.0
+                
+                // Left boundary
+                if b.position.x - b.radius < 0 {
+                    b.position.x = b.radius
+                    let normalVel = b.velocity.dx
+                    if normalVel < 0 {
+                        let coef = abs(normalVel) < restingThreshold ? 0.0 : (b.bounciness + edgeBounciness) / 2.0
+                        b.velocity.dx = -normalVel * coef
+                        if abs(normalVel) < restingThreshold {
+                            b.velocity.dy *= 0.8 // Damp tangential sliding
                         }
-                        SoundManager.shared.playCollision(
-                            mass: b.mass,
-                            size: b.radius * 2.0,
-                            bounciness: coef,
-                            impulse: impulse
-                        )
+                        if iteration == 0 && abs(normalVel) > restingThreshold {
+                            let impulse = b.mass * (1.0 + coef) * abs(normalVel)
+                            if impulse > maxCollisionImpulse {
+                                maxCollisionImpulse = impulse
+                            }
+                            SoundManager.shared.playCollision(
+                                mass: b.mass,
+                                size: b.radius * 2.0,
+                                bounciness: coef,
+                                impulse: impulse
+                            )
+                        }
                     }
                 }
-            }
-            
-            // Right boundary
-            if b.position.x + b.radius > bounds.width {
-                b.position.x = bounds.width - b.radius
-                let normalVel = b.velocity.dx
-                if normalVel > 0 {
-                    let coef = abs(normalVel) < 45.0 ? 0.0 : (b.bounciness + edgeBounciness) / 2.0
-                    b.velocity.dx = -normalVel * coef
-                    if abs(normalVel) < 45.0 {
-                        b.velocity.dy *= 0.8 // Damp tangential sliding
-                    }
-                    if abs(normalVel) > 35.0 {
-                        let impulse = b.mass * (1.0 + coef) * abs(normalVel)
-                        if impulse > maxCollisionImpulse {
-                            maxCollisionImpulse = impulse
+                
+                // Right boundary
+                if b.position.x + b.radius > bounds.width {
+                    b.position.x = bounds.width - b.radius
+                    let normalVel = b.velocity.dx
+                    if normalVel > 0 {
+                        let coef = abs(normalVel) < restingThreshold ? 0.0 : (b.bounciness + edgeBounciness) / 2.0
+                        b.velocity.dx = -normalVel * coef
+                        if abs(normalVel) < restingThreshold {
+                            b.velocity.dy *= 0.8 // Damp tangential sliding
                         }
-                        SoundManager.shared.playCollision(
-                            mass: b.mass,
-                            size: b.radius * 2.0,
-                            bounciness: coef,
-                            impulse: impulse
-                        )
+                        if iteration == 0 && abs(normalVel) > restingThreshold {
+                            let impulse = b.mass * (1.0 + coef) * abs(normalVel)
+                            if impulse > maxCollisionImpulse {
+                                maxCollisionImpulse = impulse
+                            }
+                            SoundManager.shared.playCollision(
+                                mass: b.mass,
+                                size: b.radius * 2.0,
+                                bounciness: coef,
+                                impulse: impulse
+                            )
+                        }
                     }
                 }
-            }
-            
-            // Top boundary
-            if b.position.y - b.radius < 0 {
-                b.position.y = b.radius
-                let normalVel = b.velocity.dy
-                if normalVel < 0 {
-                    let coef = abs(normalVel) < 45.0 ? 0.0 : (b.bounciness + edgeBounciness) / 2.0
-                    b.velocity.dy = -normalVel * coef
-                    if abs(normalVel) < 45.0 {
-                        b.velocity.dx *= 0.8 // Damp tangential sliding
-                    }
-                    if abs(normalVel) > 35.0 {
-                        let impulse = b.mass * (1.0 + coef) * abs(normalVel)
-                        if impulse > maxCollisionImpulse {
-                            maxCollisionImpulse = impulse
+                
+                // Top boundary
+                if b.position.y - b.radius < 0 {
+                    b.position.y = b.radius
+                    let normalVel = b.velocity.dy
+                    if normalVel < 0 {
+                        let coef = abs(normalVel) < restingThreshold ? 0.0 : (b.bounciness + edgeBounciness) / 2.0
+                        b.velocity.dy = -normalVel * coef
+                        if abs(normalVel) < restingThreshold {
+                            b.velocity.dx *= 0.8 // Damp tangential sliding
                         }
-                        SoundManager.shared.playCollision(
-                            mass: b.mass,
-                            size: b.radius * 2.0,
-                            bounciness: coef,
-                            impulse: impulse
-                        )
+                        if iteration == 0 && abs(normalVel) > restingThreshold {
+                            let impulse = b.mass * (1.0 + coef) * abs(normalVel)
+                            if impulse > maxCollisionImpulse {
+                                maxCollisionImpulse = impulse
+                            }
+                            SoundManager.shared.playCollision(
+                                mass: b.mass,
+                                size: b.radius * 2.0,
+                                bounciness: coef,
+                                impulse: impulse
+                            )
+                        }
                     }
                 }
-            }
-            
-            // Bottom boundary
-            if b.position.y + b.radius > bounds.height {
-                b.position.y = bounds.height - b.radius
-                let normalVel = b.velocity.dy
-                if normalVel > 0 {
-                    let coef = abs(normalVel) < 45.0 ? 0.0 : (b.bounciness + edgeBounciness) / 2.0
-                    b.velocity.dy = -normalVel * coef
-                    if abs(normalVel) < 45.0 {
-                        b.velocity.dx *= 0.8 // Damp tangential sliding
-                    }
-                    if abs(normalVel) > 35.0 {
-                        let impulse = b.mass * (1.0 + coef) * abs(normalVel)
-                        if impulse > maxCollisionImpulse {
-                            maxCollisionImpulse = impulse
+                
+                // Bottom boundary
+                if b.position.y + b.radius > bounds.height {
+                    b.position.y = bounds.height - b.radius
+                    let normalVel = b.velocity.dy
+                    if normalVel > 0 {
+                        let coef = abs(normalVel) < restingThreshold ? 0.0 : (b.bounciness + edgeBounciness) / 2.0
+                        b.velocity.dy = -normalVel * coef
+                        if abs(normalVel) < restingThreshold {
+                            b.velocity.dx *= 0.8 // Damp tangential sliding
                         }
-                        SoundManager.shared.playCollision(
-                            mass: b.mass,
-                            size: b.radius * 2.0,
-                            bounciness: coef,
-                            impulse: impulse
-                        )
+                        if iteration == 0 && abs(normalVel) > restingThreshold {
+                            let impulse = b.mass * (1.0 + coef) * abs(normalVel)
+                            if impulse > maxCollisionImpulse {
+                                maxCollisionImpulse = impulse
+                            }
+                            SoundManager.shared.playCollision(
+                                mass: b.mass,
+                                size: b.radius * 2.0,
+                                bounciness: coef,
+                                impulse: impulse
+                            )
+                        }
                     }
                 }
+                
+                balls[i] = b
             }
-            
-            balls[i] = b
         }
         
         // 4. Modulate Haptic Feedback Triggers
