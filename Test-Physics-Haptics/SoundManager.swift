@@ -30,6 +30,8 @@ struct RollingVoice {
     var targetSpeed: Float
     var currentSpeed: Float
     var phase: Float
+    var lastHPFIn: Float
+    var lastHPFOut: Float
 }
 
 class SoundManager: ObservableObject {
@@ -73,7 +75,7 @@ class SoundManager: ObservableObject {
         self.impactVoices = Array(repeating: ImpactVoice(frequency: 0, amplitude: 0, decayRate: 0, time: 0, isActive: false), count: maxImpactVoices)
         
         self.rollingVoices = (0..<maxRollingVoices).map { _ in
-            RollingVoice(id: nil, isActive: false, targetAmplitude: 0, targetFilterAlpha: 0, currentAmplitude: 0, currentFilterAlpha: 0, lastSample: 0, seed: UInt32.random(in: 1...UInt32.max), targetSpeed: 0, currentSpeed: 0, phase: 0)
+            RollingVoice(id: nil, isActive: false, targetAmplitude: 0, targetFilterAlpha: 0, currentAmplitude: 0, currentFilterAlpha: 0, lastSample: 0, seed: UInt32.random(in: 1...UInt32.max), targetSpeed: 0, currentSpeed: 0, phase: 0, lastHPFIn: 0, lastHPFOut: 0)
         }
         
         self.engine = AVAudioEngine()
@@ -151,8 +153,14 @@ class SoundManager: ObservableObject {
                     let filteredNoise = alpha * voiceNoise + (1.0 - alpha) * voice.lastSample
                     voice.lastSample = filteredNoise
                     
-                    // Mix filtered noise, crackle, and cyclic hum
-                    let combinedSignal = filteredNoise + crackleSample + humSample
+                    // 1e. First-order High Pass Filter (HPF) at ~140Hz to remove sub-bass mud
+                    let hpfBeta: Float = 0.98
+                    let filteredHPF = hpfBeta * (voice.lastHPFOut + filteredNoise - voice.lastHPFIn)
+                    voice.lastHPFIn = filteredNoise
+                    voice.lastHPFOut = filteredHPF
+                    
+                    // Mix band-passed noise, crackle, and cyclic hum
+                    let combinedSignal = filteredHPF + crackleSample + humSample
                     frameSample += combinedSignal * voice.currentAmplitude
                     
                     // Deactivate slot if it faded out completely
@@ -340,8 +348,8 @@ class SoundManager: ObservableObject {
                 let maxRollingVolume: Float = 0.18
                 targetAmp = Float(expSpeedRatio) * maxRollingVolume * Float(0.3 + 0.7 * min(Double(roll.mass) / 10.0, 1.0))
                 
-                // Dynamic LPF cutoff mapping
-                targetFilter = Float(0.04 + 0.22 * speedRatio)
+                // Dynamic LPF cutoff mapping (lowered range to cut high-frequency hiss)
+                targetFilter = Float(0.015 + 0.055 * speedRatio)
             }
             
             // Find existing slot matching this ball ID
@@ -367,6 +375,8 @@ class SoundManager: ObservableObject {
                         rollingVoices[i].targetSpeed = Float(roll.speed)
                         rollingVoices[i].currentSpeed = 0.0
                         rollingVoices[i].phase = 0.0
+                        rollingVoices[i].lastHPFIn = 0.0
+                        rollingVoices[i].lastHPFOut = 0.0
                         break
                     }
                 }
