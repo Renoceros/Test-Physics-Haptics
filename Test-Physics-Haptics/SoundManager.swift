@@ -127,19 +127,30 @@ class SoundManager: ObservableObject {
                     self.rollingVoices[index] = voice
                 }
                 
-                // 3. Synthesize Collision Resonators (Damped sine waves)
+                // 3. Synthesize Collision Resonators (Modal Additive Synthesis with Overtones)
                 for index in 0..<self.maxImpactVoices {
                     var voice = self.impactVoices[index]
                     guard voice.isActive else { continue }
                     
-                    let envelope = exp(-voice.decayRate * voice.time)
-                    let signal = voice.amplitude * envelope * sin(2.0 * Float.pi * voice.frequency * voice.time)
+                    let t = voice.time
+                    let env = exp(-voice.decayRate * t)
+                    
+                    // Fundamental frequency (f0)
+                    var wave = sin(2.0 * Float.pi * voice.frequency * t)
+                    
+                    // Overtone 1 (1.6 * f0, decays 1.5x faster)
+                    wave += 0.5 * exp(-voice.decayRate * 1.5 * t) * sin(2.0 * Float.pi * voice.frequency * 1.6 * t)
+                    
+                    // Overtone 2 (2.3 * f0, decays 2.0x faster)
+                    wave += 0.25 * exp(-voice.decayRate * 2.0 * t) * sin(2.0 * Float.pi * voice.frequency * 2.3 * t)
+                    
+                    let signal = voice.amplitude * env * wave
                     frameSample += signal
                     
                     voice.time += Float(1.0 / self.sampleRate)
                     
                     // Turn off voice when it decays below threshold
-                    if envelope < 0.0005 {
+                    if env < 0.0005 {
                         voice.isActive = false
                     }
                     
@@ -271,15 +282,30 @@ class SoundManager: ObservableObject {
         var updatedIndices = Set<Int>()
         
         for roll in activeRolls {
-            // Determine friction rumble volume based on weight and speed
-            // Large speed -> louder; large mass -> deeper/louder rumble
-            let speedRatio = min(Double(roll.speed) / 750.0, 1.0)
+            // Threshold speed for rolling sounds (below 35 px/s, it stays silent)
+            let minSpeed: Double = 35.0
+            let maxSpeed: Double = 900.0
             
-            // Frictional amplitude target
-            let targetAmp = Float(speedRatio * 0.14 * (0.4 + 0.6 * min(Double(roll.mass) / 10.0, 1.0)))
+            let targetAmp: Float
+            let targetFilter: Float
             
-            // Low pass cutoff target (friction brightness): rolling faster creates higher pitch texture clicks
-            let targetFilter = Float(0.04 + 0.16 * speedRatio)
+            if Double(roll.speed) < minSpeed {
+                targetAmp = 0.0
+                targetFilter = 0.04
+            } else {
+                let speedDelta = Double(roll.speed) - minSpeed
+                let speedRatio = min(speedDelta / (maxSpeed - minSpeed), 1.0)
+                
+                // Exponential volume mapping (quadratic) to match human hearing logarithmics
+                let expSpeedRatio = speedRatio * speedRatio
+                
+                // Increased volume coefficient (up to 0.45) for richer rumbles
+                let maxRollingVolume: Float = 0.45
+                targetAmp = Float(expSpeedRatio) * maxRollingVolume * Float(0.3 + 0.7 * min(Double(roll.mass) / 10.0, 1.0))
+                
+                // Dynamic LPF cutoff mapping
+                targetFilter = Float(0.04 + 0.22 * speedRatio)
+            }
             
             // Find existing slot matching this ball ID
             var slotIndex: Int?
