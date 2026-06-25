@@ -322,21 +322,24 @@ class PhysicsEngine: NSObject, ObservableObject {
                     let dy = b2.position.y - b1.position.y
                     let dist = sqrt(dx*dx + dy*dy)
                     let sumRadii = b1.radius + b2.radius
-                    
                     if dist < sumRadii {
                         // Collide! Normal vector
                         let nx = dx / (dist > 0 ? dist : 1.0)
                         let ny = dy / (dist > 0 ? dist : 1.0)
                         let overlap = sumRadii - dist
                         
-                        // Push apart proportional to inverse mass
+                        // Push apart proportional to inverse mass with slop (allowed penetration) to prevent jitter
+                        let slop: CGFloat = 0.25
+                        let correctAmount = max(0.0, overlap - slop) * 0.85
                         let totalInvMass = (1.0 / b1.mass) + (1.0 / b2.mass)
                         
-                        balls[i].position.x -= nx * overlap * ((1.0 / b1.mass) / totalInvMass)
-                        balls[i].position.y -= ny * overlap * ((1.0 / b1.mass) / totalInvMass)
-                        
-                        balls[j].position.x += nx * overlap * ((1.0 / b2.mass) / totalInvMass)
-                        balls[j].position.y += ny * overlap * ((1.0 / b2.mass) / totalInvMass)
+                        if correctAmount > 0.0 {
+                            balls[i].position.x -= nx * correctAmount * ((1.0 / b1.mass) / totalInvMass)
+                            balls[i].position.y -= ny * correctAmount * ((1.0 / b1.mass) / totalInvMass)
+                            
+                            balls[j].position.x += nx * correctAmount * ((1.0 / b2.mass) / totalInvMass)
+                            balls[j].position.y += ny * correctAmount * ((1.0 / b2.mass) / totalInvMass)
+                        }
                         
                         // Recalculate relative velocities
                         let rvx = balls[j].velocity.dx - balls[i].velocity.dx
