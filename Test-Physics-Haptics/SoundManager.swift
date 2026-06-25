@@ -8,6 +8,7 @@
 import Foundation
 import AVFoundation
 import QuartzCore
+import Combine
 
 struct ImpactVoice {
     var frequency: Float
@@ -88,7 +89,7 @@ class SoundManager: ObservableObject {
         sourceNode = AVAudioSourceNode { [weak self] (isSilence, timestamp, frameCount, audioBufferList) -> OSStatus in
             guard let self = self else { return noErr }
             
-            let buffers = UnsafeBufferPointer(audioBufferList)
+            let buffers = UnsafeMutableAudioBufferListPointer(audioBufferList)
             let channelCount = Int(buffers.count)
             let frames = Int(frameCount)
             
