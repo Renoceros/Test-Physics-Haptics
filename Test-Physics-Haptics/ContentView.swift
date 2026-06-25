@@ -25,6 +25,18 @@ class SandboxViewModel: ObservableObject {
         }
     }
     
+    @Published var isGravityEnabled: Bool = true {
+        didSet {
+            physicsEngine.isGravityEnabled = isGravityEnabled
+        }
+    }
+    
+    @Published var isDirectFollow: Bool = false {
+        didSet {
+            physicsEngine.isDirectFollow = isDirectFollow
+        }
+    }
+    
     @Published var isAxisLocked: Bool = false {
         didSet {
             MotionManager.shared.isAxisLocked = isAxisLocked
@@ -63,6 +75,7 @@ class SandboxViewModel: ObservableObject {
     private var displayLink: CADisplayLink?
     private var lastTimestamp: CFTimeInterval = 0
     private var cancellables = Set<AnyCancellable>()
+    private var dragStartDate: Date?
     
     init() {
         // Load initial states from Singletons
@@ -105,6 +118,16 @@ class SandboxViewModel: ObservableObject {
             dt = 1.0 / 60.0
         }
         lastTimestamp = currentTimestamp
+        
+        // Update direct follow timing
+        if let startDate = dragStartDate {
+            let elapsed = Date().timeIntervalSince(startDate)
+            if elapsed >= 3.0 && !isDirectFollow {
+                isDirectFollow = true
+                // Trigger subtle engagement haptic thud
+                HapticManager.shared.playCollisionHaptic(intensity: 0.5, sharpness: 0.85)
+            }
+        }
         
         let result = physicsEngine.updatePhysics(dt: CGFloat(dt), gravityVector: gravity)
         
@@ -169,6 +192,8 @@ class SandboxViewModel: ObservableObject {
     
     func startDragging(ballId: UUID, touchPos: CGPoint) {
         physicsEngine.startDragging(ballId: ballId, touchPos: touchPos)
+        dragStartDate = Date()
+        isDirectFollow = false
         self.balls = physicsEngine.balls
     }
     
@@ -179,6 +204,8 @@ class SandboxViewModel: ObservableObject {
     
     func stopDragging() {
         physicsEngine.stopDragging()
+        dragStartDate = nil
+        isDirectFollow = false
         self.balls = physicsEngine.balls
     }
     
@@ -292,7 +319,8 @@ struct ContentView: View {
                         BallView(
                             ball: ball,
                             color: viewModel.colorForBall(ball),
-                            gravity: viewModel.gravity
+                            gravity: viewModel.gravity,
+                            isDirectFollow: viewModel.draggedBallId == ball.id && viewModel.isDirectFollow
                         )
                         .gesture(
                             DragGesture(minimumDistance: 0, coordinateSpace: .named("SimulationContainer"))
@@ -398,17 +426,26 @@ struct BallView: View {
     let ball: Ball
     let color: Color
     let gravity: CGVector
+    let isDirectFollow: Bool
     
     var body: some View {
         Circle()
             .fill(color)
             .frame(width: ball.radius * 2, height: ball.radius * 2)
-            // Offset shadow opposite of tilt gravity direction to reinforce depth
+            // Add a subtle blue glow ring overlay and scale up slightly when direct dragging (hovering)
+            .overlay(
+                Circle()
+                    .stroke(Color.blue.opacity(isDirectFollow ? 0.6 : 0.0), lineWidth: 3)
+                    .scaleEffect(isDirectFollow ? 1.08 : 1.0)
+                    .animation(.easeInOut(duration: 0.2), value: isDirectFollow)
+            )
+            // Offset shadow opposite of gravity tilt. If direct follow is active,
+            // increase shadow radius and offset to make the ball feel physically "lifted" and floating.
             .shadow(
-                color: Color.black.opacity(0.18),
-                radius: 6.0,
-                x: -gravity.dx * 7.0,
-                y: -gravity.dy * 7.0
+                color: Color.black.opacity(isDirectFollow ? 0.35 : 0.18),
+                radius: isDirectFollow ? 12.0 : 6.0,
+                x: isDirectFollow ? 0 : -gravity.dx * 7.0,
+                y: isDirectFollow ? 4.0 : -gravity.dy * 7.0
             )
             .position(ball.position)
     }
@@ -452,10 +489,14 @@ struct SettingsSheet: View {
                 }
                 
                 Section(header: Text("Gravity Settings")) {
-                    Toggle("Axis-Locked Gravity", isOn: $viewModel.isAxisLocked)
-                    Text("Snaps gravity to the nearest 3D axis plane. Laying the device flat on a table disables gravity, while tilting snaps it to vertical/horizontal axes.")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
+                    Toggle("Enable Gravity", isOn: $viewModel.isGravityEnabled)
+                    
+                    if viewModel.isGravityEnabled {
+                        Toggle("Axis-Locked Gravity", isOn: $viewModel.isAxisLocked)
+                        Text("Snaps gravity to the nearest 3D axis plane. Laying the device flat on a table disables gravity, while tilting snaps it to vertical/horizontal axes.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
                 }
                 
                 Section(header: Text("Sound Settings")) {

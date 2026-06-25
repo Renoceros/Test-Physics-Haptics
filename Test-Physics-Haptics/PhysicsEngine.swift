@@ -44,6 +44,8 @@ class PhysicsEngine {
     // Simulation parameters
     var planeFriction: CGFloat = 0.15 // Plane rolling friction coef
     var edgeBounciness: CGFloat = 0.75 // Border bounciness (restitution)
+    var isGravityEnabled: Bool = true
+    var isDirectFollow: Bool = false
     
     // Bounds of the simulation view, updated externally
     var bounds: CGSize = .zero {
@@ -175,34 +177,52 @@ class PhysicsEngine {
             var ball = balls[i]
             
             // Gravity force acceleration
-            let aGravityX = gravityVector.dx * gravityMultiplier
-            let aGravityY = gravityVector.dy * gravityMultiplier
+            let currentGravity = isGravityEnabled ? gravityVector : .zero
+            let aGravityX = currentGravity.dx * gravityMultiplier
+            let aGravityY = currentGravity.dy * gravityMultiplier
             
             // Drag spring force acceleration
             var aDragX: CGFloat = 0.0
             var aDragY: CGFloat = 0.0
             
             if ball.id == draggedBallId {
-                let dx = dragTouchPos.x - ball.position.x
-                let dy = dragTouchPos.y - ball.position.y
-                
-                // Spring force F = K * displacement
-                let forceX = springStiffness * dx
-                let forceY = springStiffness * dy
-                
-                let forceMag = sqrt(forceX * forceX + forceY * forceY)
-                if forceMag > maxDragForceMagnitude {
-                    maxDragForceMagnitude = forceMag
-                    draggingBallMass = ball.mass
+                if isDirectFollow {
+                    // Direct follow: calculate velocity from displacement, then snap position
+                    let vx = (dragTouchPos.x - ball.position.x) / dt
+                    let vy = (dragTouchPos.y - ball.position.y) / dt
+                    
+                    // Clamp velocity to a safe maximum to prevent extreme impulses on release
+                    let maxVelocity: CGFloat = 3000.0
+                    let speed = sqrt(vx * vx + vy * vy)
+                    if speed > maxVelocity {
+                        ball.velocity = CGVector(dx: vx / speed * maxVelocity, dy: vy / speed * maxVelocity)
+                    } else {
+                        ball.velocity = CGVector(dx: vx, dy: vy)
+                    }
+                    
+                    ball.position = dragTouchPos
+                } else {
+                    let dx = dragTouchPos.x - ball.position.x
+                    let dy = dragTouchPos.y - ball.position.y
+                    
+                    // Spring force F = K * displacement
+                    let forceX = springStiffness * dx
+                    let forceY = springStiffness * dy
+                    
+                    let forceMag = sqrt(forceX * forceX + forceY * forceY)
+                    if forceMag > maxDragForceMagnitude {
+                        maxDragForceMagnitude = forceMag
+                        draggingBallMass = ball.mass
+                    }
+                    
+                    // a = F / m
+                    aDragX = forceX / ball.mass
+                    aDragY = forceY / ball.mass
+                    
+                    // Apply spring damping directly to velocity to prevent infinite jitter
+                    aDragX -= springDamping * ball.velocity.dx
+                    aDragY -= springDamping * ball.velocity.dy
                 }
-                
-                // a = F / m
-                aDragX = forceX / ball.mass
-                aDragY = forceY / ball.mass
-                
-                // Apply spring damping directly to velocity to prevent infinite jitter
-                aDragX -= springDamping * ball.velocity.dx
-                aDragY -= springDamping * ball.velocity.dy
             }
             
             let aActiveX = aGravityX + aDragX
@@ -214,6 +234,12 @@ class PhysicsEngine {
             let frictionDecelLimit = combinedFrictionCoef * baseFrictionDecel
             
             let speed = sqrt(ball.velocity.dx * ball.velocity.dx + ball.velocity.dy * ball.velocity.dy)
+            
+            if ball.id == draggedBallId && isDirectFollow {
+                // Skip friction and integration for direct follow
+                balls[i] = ball
+                continue
+            }
             
             if speed < 2.5 && ball.id != draggedBallId {
                 // Ball is static/near-static: check static friction threshold
