@@ -95,7 +95,7 @@ struct ContentView: View {
                 .onAppear {
                     physicsEngine.bounds = geometry.size
                 }
-                .onChange(of: geometry.size) { newSize in
+                .onChange(of: geometry.size) { _, newSize in
                     physicsEngine.bounds = newSize
                 }
             }
@@ -109,7 +109,7 @@ struct ContentView: View {
             physicsEngine.stop()
             motionManager.stop()
         }
-        .onChange(of: scenePhase) { newPhase in
+        .onChange(of: scenePhase) { _, newPhase in
             switch newPhase {
             case .active:
                 physicsEngine.start()
