@@ -6,10 +6,7 @@
 //
 
 import Foundation
-import SwiftUI
 import CoreGraphics
-import QuartzCore
-import Combine
 
 struct Ball: Identifiable, Equatable {
     let id: UUID
@@ -26,28 +23,38 @@ struct Ball: Identifiable, Equatable {
     }
 }
 
-class PhysicsEngine: NSObject, ObservableObject {
-    @Published var balls: [Ball] = []
+struct CollisionEvent {
+    let mass: CGFloat
+    let size: CGFloat
+    let bounciness: CGFloat
+    let impulse: CGFloat
+}
 
-    // Simulation parameters
-    @Published var planeFriction: CGFloat = 0.15 // Plane rolling friction coef
-    @Published var edgeBounciness: CGFloat = 0.75 // Border bounciness (restitution)
+struct PhysicsStepResult {
+    let collisions: [CollisionEvent]
+    let maxCollisionImpulse: CGFloat
+    let maxDragForceMagnitude: CGFloat
+    let draggingBallMass: CGFloat
+    let activeRolls: [(id: UUID, mass: CGFloat, speed: CGFloat, bounciness: CGFloat)]
+}
+
+class PhysicsEngine {
+    var balls: [Ball] = []
     
-    // Bounds of the simulation view, updated via GeometryReader
+    // Simulation parameters
+    var planeFriction: CGFloat = 0.15 // Plane rolling friction coef
+    var edgeBounciness: CGFloat = 0.75 // Border bounciness (restitution)
+    
+    // Bounds of the simulation view, updated externally
     var bounds: CGSize = .zero {
         didSet {
-            // Keep existing balls inside bounds if bounds change
             adjustBallsToBounds()
         }
     }
     
     // Tracking active drag gesture
-    @Published var draggedBallId: UUID?
-    @Published var dragTouchPos: CGPoint = .zero
-    
-    // Display link for steady physics steps
-    private var displayLink: CADisplayLink?
-    private var lastTimestamp: CFTimeInterval = 0
+    var draggedBallId: UUID?
+    var dragTouchPos: CGPoint = .zero
     
     // Physical Constants
     private let gravityMultiplier: CGFloat = 1100.0 // Pixels/s^2 multiplier for tilt gravity
@@ -55,8 +62,7 @@ class PhysicsEngine: NSObject, ObservableObject {
     private let springDamping: CGFloat = 4.0       // Damping constant (C) for rubberband drag
     private let baseFrictionDecel: CGFloat = 160.0 // Base deceleration for rolling friction
     
-    override init() {
-        super.init()
+    init() {
         setupInitialBalls()
     }
     
@@ -88,32 +94,20 @@ class PhysicsEngine: NSObject, ObservableObject {
         self.balls = [ballSmall, ballLarge]
     }
     
-    func start() {
-        guard displayLink == nil else { return }
-        lastTimestamp = CACurrentMediaTime()
-        displayLink = CADisplayLink(target: self, selector: #selector(step))
-        displayLink?.add(to: .main, forMode: .common)
-    }
-    
-    func stop() {
-        displayLink?.invalidate()
-        displayLink = nil
-    }
-    
-    @objc private func step(displayLink: CADisplayLink) {
-        let currentTimestamp = displayLink.timestamp
-        var dt = currentTimestamp - lastTimestamp
-        
-        // Guard against spikes (e.g. app backgrounding)
-        if dt <= 0 || dt > 0.1 {
-            dt = 1.0 / 60.0
+    func adjustBallsToBounds() {
+        guard bounds.width > 0 && bounds.height > 0 else { return }
+        for i in 0..<balls.count {
+            var b = balls[i]
+            let minX = b.radius
+            let maxX = bounds.width - b.radius
+            let minY = b.radius
+            let maxY = bounds.height - b.radius
+            
+            b.position.x = min(max(b.position.x, minX), maxX)
+            b.position.y = min(max(b.position.y, minY), maxY)
+            balls[i] = b
         }
-        lastTimestamp = currentTimestamp
-        
-        updatePhysics(dt: CGFloat(dt))
     }
-    
-    // MARK: - Drag Gesture Controls
     
     func startDragging(ballId: UUID, touchPos: CGPoint) {
         draggedBallId = ballId
@@ -127,8 +121,6 @@ class PhysicsEngine: NSObject, ObservableObject {
     func stopDragging() {
         draggedBallId = nil
     }
-    
-    // MARK: - Spawn and Clean
     
     func summonBall(mass: CGFloat, size: CGFloat, rollingFriction: CGFloat, bounciness: CGFloat) {
         let radius = size / 2.0
@@ -158,59 +150,20 @@ class PhysicsEngine: NSObject, ObservableObject {
         balls.removeAll()
     }
     
-    // MARK: - Ball Color Mapping
-    
-    /// Maps density (mass/radius) to grayscale value in the range [0.0 (darkest/heaviest) ... 0.8 (lightest)].
-    func colorForBall(_ ball: Ball) -> Color {
-        guard !balls.isEmpty else { return .gray }
-        
-        let densities = balls.map { $0.density }
-        let currentMin = densities.min() ?? 0.05
-        let currentMax = densities.max() ?? 0.5
-        
-        // Seed default range for smooth rendering if there is only one ball or identical balls
-        let refMin = min(currentMin, 0.05)
-        let refMax = max(currentMax, 0.4)
-        
-        let range = refMax - refMin
-        let normalized: CGFloat
-        if range > 0.001 {
-            normalized = (ball.density - refMin) / range
-        } else {
-            normalized = 0.5
-        }
-        
-        // Clamping normalized value to [0, 1]
-        let clampedNormalized = min(max(normalized, 0.0), 1.0)
-        
-        // Density to Grayscale (high density -> dark, low density -> light)
-        let grayVal = 0.8 - Double(clampedNormalized) * 0.8
-        let safeGray = min(max(grayVal, 0.0), 0.8)
-        
-        return Color(white: safeGray)
-    }
-    
     // MARK: - Internal Physics Updates
     
-    private func adjustBallsToBounds() {
-        guard bounds.width > 0 && bounds.height > 0 else { return }
-        for i in 0..<balls.count {
-            var b = balls[i]
-            let minX = b.radius
-            let maxX = bounds.width - b.radius
-            let minY = b.radius
-            let maxY = bounds.height - b.radius
-            
-            b.position.x = min(max(b.position.x, minX), maxX)
-            b.position.y = min(max(b.position.y, minY), maxY)
-            balls[i] = b
+    func updatePhysics(dt: CGFloat, gravityVector: CGVector) -> PhysicsStepResult {
+        guard bounds.width > 0 && bounds.height > 0 else {
+            return PhysicsStepResult(
+                collisions: [],
+                maxCollisionImpulse: 0.0,
+                maxDragForceMagnitude: 0.0,
+                draggingBallMass: 1.0,
+                activeRolls: []
+            )
         }
-    }
-    
-    private func updatePhysics(dt: CGFloat) {
-        guard bounds.width > 0 && bounds.height > 0 else { return }
         
-        let gravityVector = MotionManager.shared.gravity
+        var collisions: [CollisionEvent] = []
         var maxCollisionImpulse: CGFloat = 0.0
         
         // Drag details for haptic modulation
@@ -368,13 +321,12 @@ class PhysicsEngine: NSObject, ObservableObject {
                                     maxCollisionImpulse = impulse
                                 }
                                 
-                                // Synthesize dynamic physical impact sound
-                                SoundManager.shared.playCollision(
+                                collisions.append(CollisionEvent(
                                     mass: min(b1.mass, b2.mass),
                                     size: min(b1.radius, b2.radius) * 2.0,
                                     bounciness: coef,
                                     impulse: impulse
-                                )
+                                ))
                             }
                         }
                     }
@@ -398,12 +350,12 @@ class PhysicsEngine: NSObject, ObservableObject {
                             if impulse > maxCollisionImpulse {
                                 maxCollisionImpulse = impulse
                             }
-                            SoundManager.shared.playCollision(
+                            collisions.append(CollisionEvent(
                                 mass: b.mass,
                                 size: b.radius * 2.0,
                                 bounciness: coef,
                                 impulse: impulse
-                            )
+                            ))
                         }
                     }
                 }
@@ -420,12 +372,12 @@ class PhysicsEngine: NSObject, ObservableObject {
                             if impulse > maxCollisionImpulse {
                                 maxCollisionImpulse = impulse
                             }
-                            SoundManager.shared.playCollision(
+                            collisions.append(CollisionEvent(
                                 mass: b.mass,
                                 size: b.radius * 2.0,
                                 bounciness: coef,
                                 impulse: impulse
-                            )
+                            ))
                         }
                     }
                 }
@@ -442,12 +394,12 @@ class PhysicsEngine: NSObject, ObservableObject {
                             if impulse > maxCollisionImpulse {
                                 maxCollisionImpulse = impulse
                             }
-                            SoundManager.shared.playCollision(
+                            collisions.append(CollisionEvent(
                                 mass: b.mass,
                                 size: b.radius * 2.0,
                                 bounciness: coef,
                                 impulse: impulse
-                            )
+                            ))
                         }
                     }
                 }
@@ -464,12 +416,12 @@ class PhysicsEngine: NSObject, ObservableObject {
                             if impulse > maxCollisionImpulse {
                                 maxCollisionImpulse = impulse
                             }
-                            SoundManager.shared.playCollision(
+                            collisions.append(CollisionEvent(
                                 mass: b.mass,
                                 size: b.radius * 2.0,
                                 bounciness: coef,
                                 impulse: impulse
-                            )
+                            ))
                         }
                     }
                 }
@@ -478,60 +430,20 @@ class PhysicsEngine: NSObject, ObservableObject {
             }
         }
         
-        // 4. Modulate Haptic Feedback Triggers
-        
-        // Collision Trigger: play a sharp buzz/thud haptic based on impact force
-        if maxCollisionImpulse > 60.0 {
-            // Normalize impulse with a typical upper reference value of 800.0
-            let refImpulse: CGFloat = 800.0
-            let intensity = Float(min(maxCollisionImpulse / refImpulse, 1.0))
-            
-            // Sharpness scale [0.3 - 1.0] based on intensity of the bump
-            let sharpness = Float(0.3 + 0.7 * Double(intensity))
-            
-            HapticManager.shared.playCollisionHaptic(intensity: intensity, sharpness: sharpness)
-        }
-        
-        // Movement/Drag Hum Trigger: continuous feedback
-        if draggedBallId != nil && maxDragForceMagnitude > 0 {
-            // Dragging: intensity modulated by drag stretch force and mass
-            let refDragForce: CGFloat = 1000.0
-            let forceRatio = min(maxDragForceMagnitude / refDragForce, 1.0)
-            
-            // Mass weight factor (0.1 to 1.0)
-            let massRatio = min(draggingBallMass / 10.0, 1.0)
-            let intensity = Float(0.08 + 0.82 * forceRatio * (0.3 + 0.7 * massRatio))
-            let sharpness = Float(0.1 + 0.6 * forceRatio)
-            
-            HapticManager.shared.startContinuousHaptic(intensity: intensity, sharpness: sharpness)
-        } else {
-            // Check rolling kinetic energy for rolling hum
-            var totalKE: CGFloat = 0.0
-            for b in balls {
-                let speedSq = b.velocity.dx * b.velocity.dx + b.velocity.dy * b.velocity.dy
-                totalKE += 0.5 * b.mass * speedSq
-            }
-            
-            if totalKE > 400.0 {
-                // Map rolling energy to very gentle hum
-                let refKE: CGFloat = 100000.0
-                let energyRatio = min(totalKE / refKE, 1.0)
-                let intensity = Float(0.02 + 0.12 * energyRatio)
-                let sharpness = Float(0.05 + 0.1 * energyRatio)
-                
-                HapticManager.shared.startContinuousHaptic(intensity: intensity, sharpness: sharpness)
-            } else {
-                HapticManager.shared.stopContinuousHaptic()
-            }
-        }
-        
-        // 5. Update Procedural Rolling Friction Sounds
+        // Find rolling active states
         let rollingStates = balls.compactMap { ball -> (id: UUID, mass: CGFloat, speed: CGFloat, bounciness: CGFloat)? in
             guard ball.id != draggedBallId else { return nil }
             let speed = sqrt(ball.velocity.dx * ball.velocity.dx + ball.velocity.dy * ball.velocity.dy)
             guard speed > 5.0 else { return nil }
             return (id: ball.id, mass: ball.mass, speed: speed, bounciness: ball.bounciness)
         }
-        SoundManager.shared.updateRollingVoices(activeRolls: rollingStates)
+        
+        return PhysicsStepResult(
+            collisions: collisions,
+            maxCollisionImpulse: maxCollisionImpulse,
+            maxDragForceMagnitude: maxDragForceMagnitude,
+            draggingBallMass: draggingBallMass,
+            activeRolls: rollingStates
+        )
     }
 }

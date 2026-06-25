@@ -6,16 +6,235 @@
 //
 
 import SwiftUI
+import Combine
+
+// MARK: - ViewModel
+
+class SandboxViewModel: ObservableObject {
+    @Published var balls: [Ball] = []
+    
+    @Published var planeFriction: CGFloat = 0.15 {
+        didSet {
+            physicsEngine.planeFriction = planeFriction
+        }
+    }
+    
+    @Published var edgeBounciness: CGFloat = 0.75 {
+        didSet {
+            physicsEngine.edgeBounciness = edgeBounciness
+        }
+    }
+    
+    @Published var isAxisLocked: Bool = false {
+        didSet {
+            MotionManager.shared.isAxisLocked = isAxisLocked
+        }
+    }
+    
+    @Published var isSoundEnabled: Bool = true {
+        didSet {
+            SoundManager.shared.isSoundEnabled = isSoundEnabled
+        }
+    }
+    
+    @Published var isRollingSoundEnabled: Bool = true {
+        didSet {
+            SoundManager.shared.isRollingSoundEnabled = isRollingSoundEnabled
+        }
+    }
+    
+    @Published var masterVolume: Double = 1.0 {
+        didSet {
+            SoundManager.shared.masterVolume = Float(masterVolume)
+        }
+    }
+    
+    @Published var gravity: CGVector = .zero
+    
+    var draggedBallId: UUID? {
+        physicsEngine.draggedBallId
+    }
+    
+    var dragTouchPos: CGPoint {
+        physicsEngine.dragTouchPos
+    }
+    
+    private let physicsEngine = PhysicsEngine()
+    private var displayLink: CADisplayLink?
+    private var lastTimestamp: CFTimeInterval = 0
+    private var cancellables = Set<AnyCancellable>()
+    
+    init() {
+        // Load initial states from Singletons
+        self.isAxisLocked = MotionManager.shared.isAxisLocked
+        self.isSoundEnabled = SoundManager.shared.isSoundEnabled
+        self.isRollingSoundEnabled = SoundManager.shared.isRollingSoundEnabled
+        self.masterVolume = Double(SoundManager.shared.masterVolume)
+        
+        // Sync balls initial state
+        self.balls = physicsEngine.balls
+        
+        // Bind gravity from MotionManager to the ViewModel
+        MotionManager.shared.$gravity
+            .receive(on: RunLoop.main)
+            .sink { [weak self] newGravity in
+                self?.gravity = newGravity
+            }
+            .store(in: &cancellables)
+    }
+    
+    // MARK: - Simulation Loop
+    
+    func start() {
+        guard displayLink == nil else { return }
+        lastTimestamp = CACurrentMediaTime()
+        displayLink = CADisplayLink(target: self, selector: #selector(step))
+        displayLink?.add(to: .main, forMode: .common)
+    }
+    
+    func stop() {
+        displayLink?.invalidate()
+        displayLink = nil
+    }
+    
+    @objc private func step(displayLink: CADisplayLink) {
+        let currentTimestamp = displayLink.timestamp
+        var dt = currentTimestamp - lastTimestamp
+        
+        if dt <= 0 || dt > 0.1 {
+            dt = 1.0 / 60.0
+        }
+        lastTimestamp = currentTimestamp
+        
+        let result = physicsEngine.updatePhysics(dt: CGFloat(dt), gravityVector: gravity)
+        
+        // 1. Handle collision audio side-effects
+        for collision in result.collisions {
+            SoundManager.shared.playCollision(
+                mass: collision.mass,
+                size: collision.size,
+                bounciness: collision.bounciness,
+                impulse: collision.impulse
+            )
+        }
+        
+        // 2. Handle haptic feedback triggers
+        if result.maxCollisionImpulse > 60.0 {
+            let refImpulse: CGFloat = 800.0
+            let intensity = Float(min(result.maxCollisionImpulse / refImpulse, 1.0))
+            let sharpness = Float(0.3 + 0.7 * Double(intensity))
+            HapticManager.shared.playCollisionHaptic(intensity: intensity, sharpness: sharpness)
+        }
+        
+        if physicsEngine.draggedBallId != nil && result.maxDragForceMagnitude > 0 {
+            let refDragForce: CGFloat = 1000.0
+            let forceRatio = min(result.maxDragForceMagnitude / refDragForce, 1.0)
+            let massRatio = min(result.draggingBallMass / 10.0, 1.0)
+            let intensity = Float(0.08 + 0.82 * forceRatio * (0.3 + 0.7 * massRatio))
+            let sharpness = Float(0.1 + 0.6 * forceRatio)
+            HapticManager.shared.startContinuousHaptic(intensity: intensity, sharpness: sharpness)
+        } else {
+            var totalKE: CGFloat = 0.0
+            for b in physicsEngine.balls {
+                let speedSq = b.velocity.dx * b.velocity.dx + b.velocity.dy * b.velocity.dy
+                totalKE += 0.5 * b.mass * speedSq
+            }
+            
+            if totalKE > 400.0 {
+                let refKE: CGFloat = 100000.0
+                let energyRatio = min(totalKE / refKE, 1.0)
+                let intensity = Float(0.02 + 0.12 * energyRatio)
+                let sharpness = Float(0.05 + 0.1 * energyRatio)
+                HapticManager.shared.startContinuousHaptic(intensity: intensity, sharpness: sharpness)
+            } else {
+                HapticManager.shared.stopContinuousHaptic()
+            }
+        }
+        
+        // 3. Handle rolling audio side-effects
+        SoundManager.shared.updateRollingVoices(activeRolls: result.activeRolls)
+        
+        // 4. Update published balls array to trigger view refresh
+        self.balls = physicsEngine.balls
+    }
+    
+    // MARK: - Bounds updating
+    
+    func updateBounds(_ size: CGSize) {
+        physicsEngine.bounds = size
+        self.balls = physicsEngine.balls
+    }
+    
+    // MARK: - Drag Gesture Controls
+    
+    func startDragging(ballId: UUID, touchPos: CGPoint) {
+        physicsEngine.startDragging(ballId: ballId, touchPos: touchPos)
+        self.balls = physicsEngine.balls
+    }
+    
+    func updateDragging(touchPos: CGPoint) {
+        physicsEngine.updateDragging(touchPos: touchPos)
+        self.balls = physicsEngine.balls
+    }
+    
+    func stopDragging() {
+        physicsEngine.stopDragging()
+        self.balls = physicsEngine.balls
+    }
+    
+    // MARK: - Spawn and Clean APIs
+    
+    func summonBall(mass: CGFloat, size: CGFloat, rollingFriction: CGFloat, bounciness: CGFloat) {
+        physicsEngine.summonBall(mass: mass, size: size, rollingFriction: rollingFriction, bounciness: bounciness)
+        self.balls = physicsEngine.balls
+    }
+    
+    func deleteAllBalls() {
+        physicsEngine.deleteAllBalls()
+        self.balls = physicsEngine.balls
+    }
+    
+    func resetToDefaults() {
+        physicsEngine.setupInitialBalls()
+        self.balls = physicsEngine.balls
+    }
+    
+    // MARK: - Ball Color Mapping (View utility moved from Model to ViewModel)
+    
+    func colorForBall(_ ball: Ball) -> Color {
+        guard !balls.isEmpty else { return .gray }
+        
+        let densities = balls.map { $0.density }
+        let currentMin = densities.min() ?? 0.05
+        let currentMax = densities.max() ?? 0.5
+        
+        let refMin = min(currentMin, 0.05)
+        let refMax = max(currentMax, 0.4)
+        
+        let range = refMax - refMin
+        let normalized: CGFloat
+        if range > 0.001 {
+            normalized = (ball.density - refMin) / range
+        } else {
+            normalized = 0.5
+        }
+        
+        let clampedNormalized = min(max(normalized, 0.0), 1.0)
+        let grayVal = 0.8 - Double(clampedNormalized) * 0.8
+        let safeGray = min(max(grayVal, 0.0), 0.8)
+        
+        return Color(white: safeGray)
+    }
+}
+
+// MARK: - View
 
 struct ContentView: View {
-    @StateObject private var physicsEngine = PhysicsEngine()
+    @StateObject private var viewModel = SandboxViewModel()
     @Environment(\.scenePhase) private var scenePhase
     
     @State private var showSettings = false
     @State private var showSummon = false
-    
-    // Core motion gravity vector reference for dynamic shadows
-    @ObservedObject private var motionManager = MotionManager.shared
     
     var body: some View {
         VStack(spacing: 0) {
@@ -63,29 +282,29 @@ struct ContentView: View {
                     GridBackgroundView()
                     
                     // Rubberband spring connector line when dragging
-                    if let draggedId = physicsEngine.draggedBallId,
-                       let draggedBall = physicsEngine.balls.first(where: { $0.id == draggedId }) {
-                        RubberbandLine(from: draggedBall.position, to: physicsEngine.dragTouchPos)
+                    if let draggedId = viewModel.draggedBallId,
+                       let draggedBall = viewModel.balls.first(where: { $0.id == draggedId }) {
+                        RubberbandLine(from: draggedBall.position, to: viewModel.dragTouchPos)
                     }
                     
                     // Render individual balls
-                    ForEach(physicsEngine.balls) { ball in
+                    ForEach(viewModel.balls) { ball in
                         BallView(
                             ball: ball,
-                            color: physicsEngine.colorForBall(ball),
-                            gravity: motionManager.gravity
+                            color: viewModel.colorForBall(ball),
+                            gravity: viewModel.gravity
                         )
                         .gesture(
                             DragGesture(minimumDistance: 0, coordinateSpace: .named("SimulationContainer"))
                                 .onChanged { value in
-                                    if physicsEngine.draggedBallId != ball.id {
-                                        physicsEngine.startDragging(ballId: ball.id, touchPos: value.location)
+                                    if viewModel.draggedBallId != ball.id {
+                                        viewModel.startDragging(ballId: ball.id, touchPos: value.location)
                                     } else {
-                                        physicsEngine.updateDragging(touchPos: value.location)
+                                        viewModel.updateDragging(touchPos: value.location)
                                     }
                                 }
                                 .onEnded { _ in
-                                    physicsEngine.stopDragging()
+                                    viewModel.stopDragging()
                                 }
                         )
                     }
@@ -93,39 +312,39 @@ struct ContentView: View {
                 .background(Color(white: 0.98)) // minimalist white/off-white background
                 .coordinateSpace(name: "SimulationContainer")
                 .onAppear {
-                    physicsEngine.bounds = geometry.size
+                    viewModel.updateBounds(geometry.size)
                 }
                 .onChange(of: geometry.size) { _, newSize in
-                    physicsEngine.bounds = newSize
+                    viewModel.updateBounds(newSize)
                 }
             }
             .clipped()
         }
         .onAppear {
-            physicsEngine.start()
-            motionManager.start()
+            viewModel.start()
+            MotionManager.shared.start()
         }
         .onDisappear {
-            physicsEngine.stop()
-            motionManager.stop()
+            viewModel.stop()
+            MotionManager.shared.stop()
         }
         .onChange(of: scenePhase) { _, newPhase in
             switch newPhase {
             case .active:
-                physicsEngine.start()
-                motionManager.start()
+                viewModel.start()
+                MotionManager.shared.start()
             case .inactive, .background:
-                physicsEngine.stop()
-                motionManager.stop()
+                viewModel.stop()
+                MotionManager.shared.stop()
             @unknown default:
                 break
             }
         }
         .sheet(isPresented: $showSettings) {
-            SettingsSheet(engine: physicsEngine)
+            SettingsSheet(viewModel: viewModel)
         }
         .sheet(isPresented: $showSummon) {
-            SummonSheet(engine: physicsEngine)
+            SummonSheet(viewModel: viewModel)
         }
     }
 }
@@ -198,9 +417,7 @@ struct BallView: View {
 // MARK: - Popup Sheets
 
 struct SettingsSheet: View {
-    @ObservedObject var engine: PhysicsEngine
-    @ObservedObject var soundManager = SoundManager.shared
-    @ObservedObject var motionManager = MotionManager.shared
+    @ObservedObject var viewModel: SandboxViewModel
     @Environment(\.dismiss) var dismiss
     
     var body: some View {
@@ -211,10 +428,10 @@ struct SettingsSheet: View {
                         HStack {
                             Text("Plane Friction")
                             Spacer()
-                            Text(String(format: "%.2f", engine.planeFriction))
+                            Text(String(format: "%.2f", viewModel.planeFriction))
                                 .foregroundColor(.secondary)
                         }
-                        Slider(value: $engine.planeFriction, in: 0.0...1.0, step: 0.05)
+                        Slider(value: $viewModel.planeFriction, in: 0.0...1.0, step: 0.05)
                         Text("Higher values decelerate balls, making high-friction balls static / sticky.")
                             .font(.caption)
                             .foregroundColor(.secondary)
@@ -224,10 +441,10 @@ struct SettingsSheet: View {
                         HStack {
                             Text("Edge Bounciness")
                             Spacer()
-                            Text(String(format: "%.2f", engine.edgeBounciness))
+                            Text(String(format: "%.2f", viewModel.edgeBounciness))
                                 .foregroundColor(.secondary)
                         }
-                        Slider(value: $engine.edgeBounciness, in: 0.0...1.0, step: 0.05)
+                        Slider(value: $viewModel.edgeBounciness, in: 0.0...1.0, step: 0.05)
                         Text("Coefficient of restitution for edge boundaries and ball-to-ball impacts.")
                             .font(.caption)
                             .foregroundColor(.secondary)
@@ -235,33 +452,33 @@ struct SettingsSheet: View {
                 }
                 
                 Section(header: Text("Gravity Settings")) {
-                    Toggle("Axis-Locked Gravity", isOn: $motionManager.isAxisLocked)
+                    Toggle("Axis-Locked Gravity", isOn: $viewModel.isAxisLocked)
                     Text("Snaps gravity to the nearest 3D axis plane. Laying the device flat on a table disables gravity, while tilting snaps it to vertical/horizontal axes.")
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
                 
                 Section(header: Text("Sound Settings")) {
-                    Toggle("Sound Effects", isOn: $soundManager.isSoundEnabled)
+                    Toggle("Sound Effects", isOn: $viewModel.isSoundEnabled)
                     
-                    if soundManager.isSoundEnabled {
-                        Toggle("Rolling Rumble Sound", isOn: $soundManager.isRollingSoundEnabled)
+                    if viewModel.isSoundEnabled {
+                        Toggle("Rolling Rumble Sound", isOn: $viewModel.isRollingSoundEnabled)
                         
                         VStack(alignment: .leading, spacing: 6) {
                             HStack {
                                 Text("Volume")
                                 Spacer()
-                                Text("\(Int(soundManager.masterVolume * 100))%")
+                                Text("\(Int(viewModel.masterVolume * 100))%")
                                     .foregroundColor(.secondary)
                             }
-                            Slider(value: $soundManager.masterVolume, in: 0.0...1.0, step: 0.05)
+                            Slider(value: $viewModel.masterVolume, in: 0.0...1.0, step: 0.05)
                         }
                     }
                 }
                 
                 Section {
                     Button(role: .destructive) {
-                        engine.deleteAllBalls()
+                        viewModel.deleteAllBalls()
                         dismiss()
                     } label: {
                         HStack {
@@ -272,7 +489,7 @@ struct SettingsSheet: View {
                     }
                     
                     Button {
-                        engine.setupInitialBalls()
+                        viewModel.resetToDefaults()
                         dismiss()
                     } label: {
                         HStack {
@@ -297,7 +514,7 @@ struct SettingsSheet: View {
 }
 
 struct SummonSheet: View {
-    @ObservedObject var engine: PhysicsEngine
+    @ObservedObject var viewModel: SandboxViewModel
     @Environment(\.dismiss) var dismiss
     
     @State private var mass: Double = 2.0
@@ -366,8 +583,8 @@ struct SummonSheet: View {
                             let radius = size / 2.0
                             let density = mass / radius
                             
-                            // Color mapping logic matched dynamically
-                            let densities = engine.balls.map { $0.density } + [density]
+                            // Color mapping logic matched dynamically using viewModel's balls
+                            let densities = viewModel.balls.map { $0.density } + [density]
                             let minD = densities.min() ?? 0.05
                             let maxD = densities.max() ?? 0.5
                             let refMin = min(minD, 0.05)
@@ -393,7 +610,7 @@ struct SummonSheet: View {
                 
                 Section {
                     Button {
-                        engine.summonBall(
+                        viewModel.summonBall(
                             mass: CGFloat(mass),
                             size: CGFloat(size),
                             rollingFriction: CGFloat(rollingFriction),
@@ -422,8 +639,3 @@ struct SummonSheet: View {
         }
     }
 }
-
-#Preview {
-    ContentView()
-}
-
