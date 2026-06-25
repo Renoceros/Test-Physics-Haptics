@@ -518,11 +518,11 @@ class PhysicsEngine: NSObject, ObservableObject {
         }
         
         // 5. Update Procedural Rolling Friction Sounds
-        let rollingStates = balls.compactMap { ball -> (id: UUID, mass: CGFloat, speed: CGFloat)? in
+        let rollingStates = balls.compactMap { ball -> (id: UUID, mass: CGFloat, speed: CGFloat, bounciness: CGFloat)? in
             guard ball.id != draggedBallId else { return nil }
             let speed = sqrt(ball.velocity.dx * ball.velocity.dx + ball.velocity.dy * ball.velocity.dy)
             guard speed > 5.0 else { return nil }
-            return (id: ball.id, mass: ball.mass, speed: speed)
+            return (id: ball.id, mass: ball.mass, speed: speed, bounciness: ball.bounciness)
         }
         SoundManager.shared.updateRollingVoices(activeRolls: rollingStates)
     }

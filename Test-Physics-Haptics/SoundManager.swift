@@ -32,6 +32,16 @@ struct RollingVoice {
     var phase: Float
     var lastHPFIn: Float
     var lastHPFOut: Float
+    
+    // Resonator coefficients
+    var b1_0: Float; var b2_0: Float; var g0: Float
+    var b1_1: Float; var b2_1: Float; var g1: Float
+    var b1_2: Float; var b2_2: Float; var g2: Float
+    
+    // Resonator states
+    var y1_0: Float; var y2_0: Float
+    var y1_1: Float; var y2_1: Float
+    var y1_2: Float; var y2_2: Float
 }
 
 class SoundManager: ObservableObject {
@@ -75,7 +85,15 @@ class SoundManager: ObservableObject {
         self.impactVoices = Array(repeating: ImpactVoice(frequency: 0, amplitude: 0, decayRate: 0, time: 0, isActive: false), count: maxImpactVoices)
         
         self.rollingVoices = (0..<maxRollingVoices).map { _ in
-            RollingVoice(id: nil, isActive: false, targetAmplitude: 0, targetFilterAlpha: 0, currentAmplitude: 0, currentFilterAlpha: 0, lastSample: 0, seed: UInt32.random(in: 1...UInt32.max), targetSpeed: 0, currentSpeed: 0, phase: 0, lastHPFIn: 0, lastHPFOut: 0)
+            RollingVoice(
+                id: nil, isActive: false, targetAmplitude: 0, targetFilterAlpha: 0, currentAmplitude: 0, currentFilterAlpha: 0, lastSample: 0, seed: UInt32.random(in: 1...UInt32.max), targetSpeed: 0, currentSpeed: 0, phase: 0, lastHPFIn: 0, lastHPFOut: 0,
+                b1_0: 0, b2_0: 0, g0: 0,
+                b1_1: 0, b2_1: 0, g1: 0,
+                b1_2: 0, b2_2: 0, g2: 0,
+                y1_0: 0, y2_0: 0,
+                y1_1: 0, y2_1: 0,
+                y1_2: 0, y2_2: 0
+            )
         }
         
         self.engine = AVAudioEngine()
@@ -160,8 +178,24 @@ class SoundManager: ObservableObject {
                     voice.lastHPFOut = filteredHPF
                     
                     // Mix band-passed noise, crackle, and cyclic hum
-                    let combinedSignal = filteredHPF + crackleSample + humSample
-                    frameSample += combinedSignal * voice.currentAmplitude
+                    let excitation = filteredHPF + crackleSample + humSample
+                    
+                    // 1f. Pass excitation through 3 physical modal resonators of the ball
+                    let y0 = voice.g0 * excitation - voice.b1_0 * voice.y1_0 - voice.b2_0 * voice.y2_0
+                    voice.y2_0 = voice.y1_0
+                    voice.y1_0 = y0
+                    
+                    let y1 = voice.g1 * excitation - voice.b1_1 * voice.y1_1 - voice.b2_1 * voice.y2_1
+                    voice.y2_1 = voice.y1_1
+                    voice.y1_1 = y1
+                    
+                    let y2 = voice.g2 * excitation - voice.b1_2 * voice.y1_2 - voice.b2_2 * voice.y2_2
+                    voice.y2_2 = voice.y1_2
+                    voice.y1_2 = y2
+                    
+                    // Combine resonator outputs and scale by voice volume
+                    let rollingAcoustics = y0 + y1 + y2
+                    frameSample += rollingAcoustics * voice.currentAmplitude
                     
                     // Deactivate slot if it faded out completely
                     if voice.targetAmplitude == 0.0 && voice.currentAmplitude < 0.0005 {
@@ -317,8 +351,8 @@ class SoundManager: ObservableObject {
     }
     
     /// Update the states of all active rolling balls.
-    /// - Parameter activeRolls: List of rolling balls with their IDs, mass, and current speed.
-    func updateRollingVoices(activeRolls: [(id: UUID, mass: CGFloat, speed: CGFloat)]) {
+    /// - Parameter activeRolls: List of rolling balls with their IDs, mass, speed, and bounciness.
+    func updateRollingVoices(activeRolls: [(id: UUID, mass: CGFloat, speed: CGFloat, bounciness: CGFloat)]) {
         guard isSoundEnabled && isRollingSoundEnabled else { return }
         
         lock.lock()
@@ -333,6 +367,38 @@ class SoundManager: ObservableObject {
             
             let targetAmp: Float
             let targetFilter: Float
+            
+            // Calculate coefficients based on ball's physical size, mass, and bounciness
+            let baseFreq = 65.0
+            let massWeight = 600.0 / sqrt(Double(roll.mass))
+            let f0 = Float(baseFreq + massWeight)
+            let f1 = f0 * 1.6
+            let f2 = f0 * 2.3
+            
+            // Rolling contact damping: higher bounciness -> less damping (rings more); low bounciness -> high damping (dull wood/rubber hum)
+            let decay = Float(130.0 - 90.0 * Double(roll.bounciness))
+            let dt = 1.0 / Float(sampleRate)
+            
+            // Resonator 0
+            let theta0 = 2.0 * Float.pi * f0 * dt
+            let R0 = exp(-decay * dt)
+            let b1_0 = -2.0 * R0 * cos(theta0)
+            let b2_0 = R0 * R0
+            let g0 = (1.0 - b2_0) * sin(theta0) * 0.40
+            
+            // Resonator 1
+            let theta1 = 2.0 * Float.pi * f1 * dt
+            let R1 = exp(-decay * 1.5 * dt)
+            let b1_1 = -2.0 * R1 * cos(theta1)
+            let b2_1 = R1 * R1
+            let g1 = (1.0 - b2_1) * sin(theta1) * 0.18
+            
+            // Resonator 2
+            let theta2 = 2.0 * Float.pi * f2 * dt
+            let R2 = exp(-decay * 2.0 * dt)
+            let b1_2 = -2.0 * R2 * cos(theta2)
+            let b2_2 = R2 * R2
+            let g2 = (1.0 - b2_2) * sin(theta2) * 0.08
             
             if Double(roll.speed) < minSpeed {
                 targetAmp = 0.0
@@ -377,16 +443,22 @@ class SoundManager: ObservableObject {
                         rollingVoices[i].phase = 0.0
                         rollingVoices[i].lastHPFIn = 0.0
                         rollingVoices[i].lastHPFOut = 0.0
+                        rollingVoices[i].y1_0 = 0.0; rollingVoices[i].y2_0 = 0.0
+                        rollingVoices[i].y1_1 = 0.0; rollingVoices[i].y2_1 = 0.0
+                        rollingVoices[i].y1_2 = 0.0; rollingVoices[i].y2_2 = 0.0
                         break
                     }
                 }
             }
             
-            // Update assigned slot target values
+            // Update assigned slot target values and coefficients
             if let index = slotIndex {
                 rollingVoices[index].targetAmplitude = targetAmp
                 rollingVoices[index].targetFilterAlpha = targetFilter
                 rollingVoices[index].targetSpeed = Float(roll.speed)
+                rollingVoices[index].b1_0 = b1_0; rollingVoices[index].b2_0 = b2_0; rollingVoices[index].g0 = g0
+                rollingVoices[index].b1_1 = b1_1; rollingVoices[index].b2_1 = b2_1; rollingVoices[index].g1 = g1
+                rollingVoices[index].b1_2 = b1_2; rollingVoices[index].b2_2 = b2_2; rollingVoices[index].g2 = g2
                 updatedIndices.insert(index)
             }
         }
