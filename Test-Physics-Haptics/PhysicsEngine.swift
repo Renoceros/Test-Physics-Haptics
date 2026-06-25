@@ -350,9 +350,17 @@ class PhysicsEngine: NSObject, ObservableObject {
                             balls[j].velocity.dx += (impulse / b2.mass) * nx
                             balls[j].velocity.dy += (impulse / b2.mass) * ny
                             
-                            // Only trigger haptic for significant impact speed
+                            // Only trigger haptic and sound for significant impact speed
                             if abs(relativeVelNormal) > 35.0 && impulse > maxCollisionImpulse {
                                 maxCollisionImpulse = impulse
+                                
+                                // Synthesize dynamic physical impact sound
+                                SoundManager.shared.playCollision(
+                                    mass: min(b1.mass, b2.mass),
+                                    size: min(b1.radius, b2.radius) * 2.0,
+                                    bounciness: edgeBounciness,
+                                    impulse: impulse
+                                )
                             }
                         }
                     }
@@ -375,6 +383,12 @@ class PhysicsEngine: NSObject, ObservableObject {
                         if impulse > maxCollisionImpulse {
                             maxCollisionImpulse = impulse
                         }
+                        SoundManager.shared.playCollision(
+                            mass: b.mass,
+                            size: b.radius * 2.0,
+                            bounciness: edgeBounciness,
+                            impulse: impulse
+                        )
                     }
                 }
             }
@@ -390,6 +404,12 @@ class PhysicsEngine: NSObject, ObservableObject {
                         if impulse > maxCollisionImpulse {
                             maxCollisionImpulse = impulse
                         }
+                        SoundManager.shared.playCollision(
+                            mass: b.mass,
+                            size: b.radius * 2.0,
+                            bounciness: edgeBounciness,
+                            impulse: impulse
+                        )
                     }
                 }
             }
@@ -405,6 +425,12 @@ class PhysicsEngine: NSObject, ObservableObject {
                         if impulse > maxCollisionImpulse {
                             maxCollisionImpulse = impulse
                         }
+                        SoundManager.shared.playCollision(
+                            mass: b.mass,
+                            size: b.radius * 2.0,
+                            bounciness: edgeBounciness,
+                            impulse: impulse
+                        )
                     }
                 }
             }
@@ -420,6 +446,12 @@ class PhysicsEngine: NSObject, ObservableObject {
                         if impulse > maxCollisionImpulse {
                             maxCollisionImpulse = impulse
                         }
+                        SoundManager.shared.playCollision(
+                            mass: b.mass,
+                            size: b.radius * 2.0,
+                            bounciness: edgeBounciness,
+                            impulse: impulse
+                        )
                     }
                 }
             }
@@ -473,5 +505,14 @@ class PhysicsEngine: NSObject, ObservableObject {
                 HapticManager.shared.stopContinuousHaptic()
             }
         }
+        
+        // 5. Update Procedural Rolling Friction Sounds
+        let rollingStates = balls.compactMap { ball -> (id: UUID, mass: CGFloat, speed: CGFloat)? in
+            guard ball.id != draggedBallId else { return nil }
+            let speed = sqrt(ball.velocity.dx * ball.velocity.dx + ball.velocity.dy * ball.velocity.dy)
+            guard speed > 5.0 else { return nil }
+            return (id: ball.id, mass: ball.mass, speed: speed)
+        }
+        SoundManager.shared.updateRollingVoices(activeRolls: rollingStates)
     }
 }

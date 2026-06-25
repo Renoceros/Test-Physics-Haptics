@@ -199,6 +199,7 @@ struct BallView: View {
 
 struct SettingsSheet: View {
     @ObservedObject var engine: PhysicsEngine
+    @ObservedObject var soundManager = SoundManager.shared
     @Environment(\.dismiss) var dismiss
     
     var body: some View {
@@ -229,6 +230,22 @@ struct SettingsSheet: View {
                         Text("Coefficient of restitution for edge boundaries and ball-to-ball impacts.")
                             .font(.caption)
                             .foregroundColor(.secondary)
+                    }
+                }
+                
+                Section(header: Text("Sound Settings")) {
+                    Toggle("Sound Effects", isOn: $soundManager.isSoundEnabled)
+                    
+                    if soundManager.isSoundEnabled {
+                        VStack(alignment: .leading, spacing: 6) {
+                            HStack {
+                                Text("Volume")
+                                Spacer()
+                                Text("\(Int(soundManager.masterVolume * 100))%")
+                                    .foregroundColor(.secondary)
+                            }
+                            Slider(value: $soundManager.masterVolume, in: 0.0...1.0, step: 0.05)
+                        }
                     }
                 }
                 
