@@ -148,7 +148,8 @@ class SandboxViewModel: ObservableObject {
                 mass: collision.mass,
                 size: collision.size,
                 bounciness: collision.bounciness,
-                impulse: collision.impulse
+                impulse: collision.impulse,
+                energyDissipated: collision.energyDissipated
             )
         }
         

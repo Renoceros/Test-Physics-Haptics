@@ -320,8 +320,9 @@ class SoundManager: ObservableObject {
     ///   - mass: Mass of the ball (modulates frequency/pitch).
     ///   - size: Size/diameter of the ball (modulates pitch).
     ///   - bounciness: Coef of restitution (modulates decay time).
-    ///   - impulse: Relative physical force of impact (modulates volume).
-    func playCollision(mass: CGFloat, size: CGFloat, bounciness: CGFloat, impulse: CGFloat) {
+    ///   - impulse: Relative physical force of impact.
+    ///   - energyDissipated: Physical kinetic energy dissipated by collision (modulates volume).
+    func playCollision(mass: CGFloat, size: CGFloat, bounciness: CGFloat, impulse: CGFloat, energyDissipated: CGFloat) {
         guard isSoundEnabled else { return }
         
         // Mathematical pitch mapping: smaller, lighter balls click higher; large, heavy balls thud deep.
@@ -329,9 +330,18 @@ class SoundManager: ObservableObject {
         let massWeight = 750.0 / sqrt(Double(mass))
         let freq = Float(baseFreq + massWeight)
         
-        // Scale amplitude by impact force impulse
-        let volumeScaler = 0.5
-        let amp = Float(min(Double(impulse) / 1000.0 * volumeScaler, 1.0))
+        // Modulate volume amplitude based on energy dissipation:
+        // We know sound energy is proportional to amplitude squared, so amplitude is proportional to sqrt(energyDissipated).
+        // Let's define a reference energy value where sound volume reaches 1.0.
+        // For a reference case: ball of mass 2.0 kg colliding with a boundary at velocity 550 px/s with restitution 0.6:
+        // E_ref = 0.5 * 2.0 * 550^2 * (1 - 0.6^2) = 1.0 * 302500 * 0.64 = 193,600.
+        // We'll set the reference energy to 180,000.
+        let refEnergy: Double = 180000.0
+        let energyRatio = Double(energyDissipated) / refEnergy
+        
+        // Volume amplitude is proportional to the square root of the energy ratio, scaled for auditory comfort.
+        let volumeScaler = 0.55
+        let amp = Float(min(sqrt(energyRatio) * volumeScaler, 1.0))
         
         // Scale decay rate: high bounciness -> slow decay (ringing); low bounciness -> fast decay (dead thud)
         let decay = Float(65.0 - 48.0 * Double(bounciness))

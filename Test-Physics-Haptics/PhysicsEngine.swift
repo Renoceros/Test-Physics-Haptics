@@ -28,6 +28,7 @@ struct CollisionEvent {
     let size: CGFloat
     let bounciness: CGFloat
     let impulse: CGFloat
+    let energyDissipated: CGFloat
 }
 
 struct PhysicsStepResult {
@@ -347,11 +348,15 @@ class PhysicsEngine {
                                     maxCollisionImpulse = impulse
                                 }
                                 
+                                let reducedMass = 1.0 / totalInvMass
+                                let energyDissipated = 0.5 * reducedMass * relativeVelNormal * relativeVelNormal * (1.0 - coef * coef)
+                                
                                 collisions.append(CollisionEvent(
                                     mass: min(b1.mass, b2.mass),
                                     size: min(b1.radius, b2.radius) * 2.0,
                                     bounciness: coef,
-                                    impulse: impulse
+                                    impulse: impulse,
+                                    energyDissipated: energyDissipated
                                 ))
                             }
                         }
@@ -376,11 +381,13 @@ class PhysicsEngine {
                             if impulse > maxCollisionImpulse {
                                 maxCollisionImpulse = impulse
                             }
+                            let energyDissipated = 0.5 * b.mass * normalVel * normalVel * (1.0 - coef * coef)
                             collisions.append(CollisionEvent(
                                 mass: b.mass,
                                 size: b.radius * 2.0,
                                 bounciness: coef,
-                                impulse: impulse
+                                impulse: impulse,
+                                energyDissipated: energyDissipated
                             ))
                         }
                     }
@@ -398,11 +405,13 @@ class PhysicsEngine {
                             if impulse > maxCollisionImpulse {
                                 maxCollisionImpulse = impulse
                             }
+                            let energyDissipated = 0.5 * b.mass * normalVel * normalVel * (1.0 - coef * coef)
                             collisions.append(CollisionEvent(
                                 mass: b.mass,
                                 size: b.radius * 2.0,
                                 bounciness: coef,
-                                impulse: impulse
+                                impulse: impulse,
+                                energyDissipated: energyDissipated
                             ))
                         }
                     }
@@ -420,11 +429,13 @@ class PhysicsEngine {
                             if impulse > maxCollisionImpulse {
                                 maxCollisionImpulse = impulse
                             }
+                            let energyDissipated = 0.5 * b.mass * normalVel * normalVel * (1.0 - coef * coef)
                             collisions.append(CollisionEvent(
                                 mass: b.mass,
                                 size: b.radius * 2.0,
                                 bounciness: coef,
-                                impulse: impulse
+                                impulse: impulse,
+                                energyDissipated: energyDissipated
                             ))
                         }
                     }
@@ -442,11 +453,13 @@ class PhysicsEngine {
                             if impulse > maxCollisionImpulse {
                                 maxCollisionImpulse = impulse
                             }
+                            let energyDissipated = 0.5 * b.mass * normalVel * normalVel * (1.0 - coef * coef)
                             collisions.append(CollisionEvent(
                                 mass: b.mass,
                                 size: b.radius * 2.0,
                                 bounciness: coef,
-                                impulse: impulse
+                                impulse: impulse,
+                                energyDissipated: energyDissipated
                             ))
                         }
                     }
