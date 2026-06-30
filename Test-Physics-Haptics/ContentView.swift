@@ -341,135 +341,150 @@ struct ContentView: View {
     
     @State private var showSettings = false
     @State private var showSummon = false
+    @State private var selectedTab = 0
     
     var body: some View {
-        VStack(spacing: 0) {
-            // Header Bar
-            HStack(spacing: 8) {
-                Button {
-                    showSettings = true
-                } label: {
-                    Image(systemName: "gearshape.fill")
-                        .font(.title3)
-                        .foregroundColor(.gray)
-                        .padding(10)
-                        .background(Color(white: 0.95))
-                        .clipShape(Circle())
-                }
-                
-                Button {
-                    viewModel.undo()
-                } label: {
-                    Image(systemName: "arrow.uturn.backward")
-                        .font(.body)
-                        .foregroundColor(viewModel.canUndo ? .primary : .gray.opacity(0.3))
-                        .padding(10)
-                        .background(Color(white: 0.95))
-                        .clipShape(Circle())
-                }
-                .disabled(!viewModel.canUndo)
-                
-                Button {
-                    viewModel.redo()
-                } label: {
-                    Image(systemName: "arrow.uturn.forward")
-                        .font(.body)
-                        .foregroundColor(viewModel.canRedo ? .primary : .gray.opacity(0.3))
-                        .padding(10)
-                        .background(Color(white: 0.95))
-                        .clipShape(Circle())
-                }
-                .disabled(!viewModel.canRedo)
-                
-                Spacer()
-                
-                Text("Physics & Haptics")
-                    .font(.system(.headline, design: .rounded))
-                    .foregroundColor(Color(white: 0.2))
-                
-                Spacer()
-                
-                Button {
-                    showSummon = true
-                } label: {
-                    Image(systemName: "plus")
-                        .font(.title2)
-                        .foregroundColor(.gray)
-                        .padding(12)
-                        .background(Color(white: 0.95))
-                        .clipShape(Circle())
-                }
-            }
-            .padding(.horizontal)
-            .padding(.top, 8)
-            .padding(.bottom, 12)
-            .background(Color.white)
-            
-            // Physics Sandbox Canvas
-            GeometryReader { geometry in
-                ZStack {
-                    // Subtle blueprint/draft grid for spatial speed perspective
-                    GridBackgroundView()
-                    
-                    // Rubberband spring connector line when dragging
-                    if let draggedId = viewModel.draggedBallId,
-                       let draggedBall = viewModel.balls.first(where: { $0.id == draggedId }) {
-                        RubberbandLine(from: draggedBall.position, to: viewModel.dragTouchPos)
+        TabView(selection: $selectedTab) {
+            VStack(spacing: 0) {
+                // Header Bar
+                HStack(spacing: 8) {
+                    Button {
+                        showSettings = true
+                    } label: {
+                        Image(systemName: "gearshape.fill")
+                            .font(.title3)
+                            .foregroundColor(.gray)
+                            .padding(10)
+                            .background(Color(white: 0.95))
+                            .clipShape(Circle())
                     }
                     
-                    // Render individual balls
-                    ForEach(viewModel.balls) { ball in
-                        BallView(
-                            ball: ball,
-                            color: viewModel.colorForBall(ball),
-                            gravity: viewModel.gravity,
-                            isDirectFollow: viewModel.draggedBallId == ball.id && viewModel.isDirectFollow
-                        )
-                        .gesture(
-                            DragGesture(minimumDistance: 0, coordinateSpace: .named("SimulationContainer"))
-                                .onChanged { value in
-                                    if viewModel.draggedBallId != ball.id {
-                                        viewModel.startDragging(ballId: ball.id, touchPos: value.location)
-                                    } else {
-                                        viewModel.updateDragging(touchPos: value.location)
+                    Button {
+                        viewModel.undo()
+                    } label: {
+                        Image(systemName: "arrow.uturn.backward")
+                            .font(.body)
+                            .foregroundColor(viewModel.canUndo ? .primary : .gray.opacity(0.3))
+                            .padding(10)
+                            .background(Color(white: 0.95))
+                            .clipShape(Circle())
+                    }
+                    .disabled(!viewModel.canUndo)
+                    
+                    Button {
+                        viewModel.redo()
+                    } label: {
+                        Image(systemName: "arrow.uturn.forward")
+                            .font(.body)
+                            .foregroundColor(viewModel.canRedo ? .primary : .gray.opacity(0.3))
+                            .padding(10)
+                            .background(Color(white: 0.95))
+                            .clipShape(Circle())
+                    }
+                    .disabled(!viewModel.canRedo)
+                    
+                    Spacer()
+                    
+                    Text("Physics & Haptics")
+                        .font(.system(.headline, design: .rounded))
+                        .foregroundColor(Color(white: 0.2))
+                    
+                    Spacer()
+                    
+                    Button {
+                        showSummon = true
+                    } label: {
+                        Image(systemName: "plus")
+                            .font(.title2)
+                            .foregroundColor(.gray)
+                            .padding(12)
+                            .background(Color(white: 0.95))
+                            .clipShape(Circle())
+                    }
+                }
+                .padding(.horizontal)
+                .padding(.top, 8)
+                .padding(.bottom, 12)
+                .background(Color.white)
+                
+                // Physics Sandbox Canvas
+                GeometryReader { geometry in
+                    ZStack {
+                        // Subtle blueprint/draft grid for spatial speed perspective
+                        GridBackgroundView()
+                        
+                        // Rubberband spring connector line when dragging
+                        if let draggedId = viewModel.draggedBallId,
+                           let draggedBall = viewModel.balls.first(where: { $0.id == draggedId }) {
+                            RubberbandLine(from: draggedBall.position, to: viewModel.dragTouchPos)
+                        }
+                        
+                        // Render individual balls
+                        ForEach(viewModel.balls) { ball in
+                            BallView(
+                                ball: ball,
+                                color: viewModel.colorForBall(ball),
+                                gravity: viewModel.gravity,
+                                isDirectFollow: viewModel.draggedBallId == ball.id && viewModel.isDirectFollow
+                            )
+                            .gesture(
+                                DragGesture(minimumDistance: 0, coordinateSpace: .named("SimulationContainer"))
+                                    .onChanged { value in
+                                        if viewModel.draggedBallId != ball.id {
+                                            viewModel.startDragging(ballId: ball.id, touchPos: value.location)
+                                        } else {
+                                            viewModel.updateDragging(touchPos: value.location)
+                                        }
                                     }
-                                }
-                                .onEnded { _ in
-                                    viewModel.stopDragging()
-                                }
-                        )
+                                    .onEnded { _ in
+                                        viewModel.stopDragging()
+                                    }
+                            )
+                        }
+                    }
+                    .background(Color(white: 0.98)) // minimalist white/off-white background
+                    .coordinateSpace(name: "SimulationContainer")
+                    .onAppear {
+                        viewModel.updateBounds(geometry.size)
+                    }
+                    .onChange(of: geometry.size) { _, newSize in
+                        viewModel.updateBounds(newSize)
                     }
                 }
-                .background(Color(white: 0.98)) // minimalist white/off-white background
-                .coordinateSpace(name: "SimulationContainer")
-                .onAppear {
-                    viewModel.updateBounds(geometry.size)
-                }
-                .onChange(of: geometry.size) { _, newSize in
-                    viewModel.updateBounds(newSize)
-                }
+                .clipped()
             }
-            .clipped()
-        }
-        .onAppear {
-            viewModel.start()
-            MotionManager.shared.start()
-        }
-        .onDisappear {
-            viewModel.stop()
-            MotionManager.shared.stop()
-        }
-        .onChange(of: scenePhase) { _, newPhase in
-            switch newPhase {
-            case .active:
+            .onAppear {
                 viewModel.start()
                 MotionManager.shared.start()
-            case .inactive, .background:
+            }
+            .onDisappear {
                 viewModel.stop()
                 MotionManager.shared.stop()
-            @unknown default:
-                break
             }
+            .onChange(of: scenePhase) { _, newPhase in
+                switch newPhase {
+                case .active:
+                    if selectedTab == 0 {
+                        viewModel.start()
+                        MotionManager.shared.start()
+                    }
+                case .inactive, .background:
+                    viewModel.stop()
+                    MotionManager.shared.stop()
+                @unknown default:
+                    break
+                }
+            }
+            .tabItem {
+                Label("Sandbox", systemImage: "sparkles")
+            }
+            .tag(0)
+            
+            SphereView()
+                .tabItem {
+                    Label("Sphere", systemImage: "circle.fill")
+                }
+                .tag(1)
         }
         .sheet(isPresented: $showSettings) {
             SettingsSheet(viewModel: viewModel)
