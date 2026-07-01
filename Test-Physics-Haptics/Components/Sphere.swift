@@ -195,7 +195,6 @@ struct SphereView: View {
                     let ry = 50.0 // More depth tilt for perspective spacing
                     
                     let currentAngle = getCurrentAngle()
-                    let selectedIndex = getSelectedIndex()
                     
                     ZStack {
                         // Circular guide path on the floor to make it feel grounded

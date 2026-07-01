@@ -485,6 +485,7 @@ struct ContentView: View {
                     Label("Sphere", systemImage: "circle.fill")
                 }
                 .tag(1)
+            
         }
         .sheet(isPresented: $showSettings) {
             SettingsSheet(viewModel: viewModel)
@@ -550,15 +551,15 @@ struct BallView: View {
         Circle()
             .fill(color)
             .frame(width: ball.radius * 2, height: ball.radius * 2)
-            // Add a subtle blue glow ring overlay and scale up slightly when direct dragging (hovering)
+        // Add a subtle blue glow ring overlay and scale up slightly when direct dragging (hovering)
             .overlay(
                 Circle()
                     .stroke(Color.blue.opacity(isDirectFollow ? 0.6 : 0.0), lineWidth: 3)
                     .scaleEffect(isDirectFollow ? 1.08 : 1.0)
                     .animation(.easeInOut(duration: 0.2), value: isDirectFollow)
             )
-            // Offset shadow opposite of gravity tilt. If direct follow is active,
-            // increase shadow radius and offset to make the ball feel physically "lifted" and floating.
+        // Offset shadow opposite of gravity tilt. If direct follow is active,
+        // increase shadow radius and offset to make the ball feel physically "lifted" and floating.
             .shadow(
                 color: Color.black.opacity(isDirectFollow ? 0.35 : 0.18),
                 radius: isDirectFollow ? 12.0 : 6.0,
@@ -612,10 +613,10 @@ struct SettingsSheet: View {
                     if viewModel.isGravityEnabled {
                         VStack(alignment: .leading, spacing: 6) {
                             HStack {
-                                    Text("Gravity Strength")
-                                    Spacer()
-                                    Text("\(Int(viewModel.gravityMultiplier)) pt/s²")
-                                        .foregroundColor(.secondary)
+                                Text("Gravity Strength")
+                                Spacer()
+                                Text("\(Int(viewModel.gravityMultiplier)) pt/s²")
+                                    .foregroundColor(.secondary)
                             }
                             Slider(value: $viewModel.gravityMultiplier, in: 100.0...2500.0, step: 50.0)
                         }
